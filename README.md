@@ -1,16 +1,30 @@
-# React + Vite
+# 🎓 TCAS KMUTNB Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ระบบจำลองการรับสมัครนักศึกษาสำหรับ **มหาวิทยาลัยเทคโนโลยีพระจอมเกล้าพระนครเหนือ (KMUTNB)** พัฒนาด้วย React และ Tailwind CSS v4 เน้นความเรียบง่ายและใช้งานง่ายสำหรับนักเรียนและเจ้าหน้าที่
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## React Compiler
+## ✨ คุณสมบัติหลัก (Features)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+* **Admission Criteria**: ระบบค้นหาเกณฑ์การรับสมัคร แยกตามคณะ ภาควิชา และสาขาวิชาอย่างละเอียด
+* **Application Form**: แบบฟอร์มสมัครเรียนออนไลน์ พร้อมระบบ Drag & Drop สำหรับอัปโหลด Portfolio
+* **Staff Dashboard**: ระบบหลังบ้านสำหรับเจ้าหน้าที่เพื่อค้นหา ตรวจสอบ และอนุมัติผลการสมัคร
+* **Authentication**: ระบบเข้าสู่ระบบที่แยกสิทธิ์การใช้งาน (Role) ระหว่างนักเรียนและเจ้าหน้าที่โดยอัตโนมัติ
+* **Responsive Design**: รองรับการใช้งานทุกหน้าจอ ทั้งมือถือ แท็บเล็ต และคอมพิวเตอร์
 
-## Expanding the ESLint configuration
+## 🛠️ เทคโนโลยีที่ใช้ (Tech Stack)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+* **Frontend**: React 19 (Vite)
+* **Styling**: Tailwind CSS v4 (Modern Engine)
+* **Routing**: React Router v7
+* **Icons**: Lucide React
+* **Components**: Hand-crafted UI based on Tailwind principles
+
+## 📂 โครงสร้างโปรเจค (Project Structure)
+
+```text
+src/
+ ┣ components/  # ชิ้นส่วน UI ที่ใช้ซ้ำ (Navbar, UI elements)
+ ┣ lib/         # ข้อมูลจำลอง (Mock Data) และเครื่องมือเสริม
+ ┣ pages/       # หน้าเว็บหลักทั้งหมด (Home, Apply, Staff, etc.)
+ ┗ App.jsx      # ตัวควบคุมระบบ Routing หลัก
