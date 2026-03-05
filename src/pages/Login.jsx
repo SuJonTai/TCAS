@@ -24,7 +24,9 @@ export default function LoginForm() {
     setTimeout(() => {
       setLoading(false)
       if (typeof window !== "undefined") {
-        localStorage.setItem("isLogin", true)
+        const isStaff = form.userId.toUpperCase().startsWith("S")
+        localStorage.setItem("isLogin", "true")
+        localStorage.setItem("role", isStaff ? "staff" : "applicant")
       }
       // Basic mock check for staff vs student
       if (form.userId.toUpperCase().startsWith("S")) {

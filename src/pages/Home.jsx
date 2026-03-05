@@ -33,7 +33,10 @@ function AnnouncementBanner() {
 }
 
 function HeroSection() {
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") : false;
+  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
+  const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+  const applyTarget = !isLogin ? "/login" : role === "staff" ? "/staff" : "/apply";
+  const showApplyButton = !isLogin || role === "applicant";
   return (
     <section className="px-4 py-16 lg:py-24">
       <div className="mx-auto max-w-4xl text-center">
@@ -53,12 +56,14 @@ function HeroSection() {
               รายละเอียดรับสมัคร
             </Button>
           </Link>
-          <Link to={isLogin ? "/apply" : "/login"}>
-            <Button size="lg" className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              สมัครเรียน
-            </Button>
-          </Link>
+          {showApplyButton && (
+            <Link to={applyTarget}>
+              <Button size="lg" className="gap-2">
+                <UserPlus className="h-4 w-4" />
+                สมัครเรียน
+              </Button>
+            </Link>
+          )}
           <Link to="/login">
             <Button size="lg" variant="ghost" className="gap-2">
               <LogIn className="h-4 w-4" />

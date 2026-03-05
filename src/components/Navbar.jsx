@@ -15,10 +15,20 @@ export default function Navbar() {
   const location = useLocation()
   const pathname = location.pathname
   const [mobileOpen, setMobileOpen] = useState(false)
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") : false;
+  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
+  const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
   const targetHref = href => {
-    const needsAuth = href === "/apply" || href === "/staff";
-    if (isLogin && needsAuth) return "/login"
+    const needsApplicant = href === "/apply";
+    const needsStaff = href === "/staff";
+
+    if (!isLogin && (needsApplicant || needsStaff)) return "/login"
+
+    // Staff should not go to applicant apply page
+    if (isLogin && needsApplicant && role === "staff") return "/staff"
+
+    // Applicant should not go to staff pages
+    if (isLogin && needsStaff && role === "applicant") return "/apply"
+
     return href
   }
   return (
@@ -38,20 +48,28 @@ export default function Navbar() {
 
         {/* Desktop */}
         <div className="hidden items-center gap-1 md:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href} 
-              to={targetHref(link.href)}
-              className={cn(
-                "rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
-                pathname === link.href
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            const isApply = link.href === "/apply";
+            const isStaffLink = link.href === "/staff";
+
+            if (isLogin && role === "staff" && isApply) return null;
+            if (isLogin && role === "applicant" && isStaffLink) return null;
+
+            return (
+              <Link
+                key={link.href} 
+                to={targetHref(link.href)}
+                className={cn(
+                  "rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
+                  pathname === link.href
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                {link.label}
+              </Link>
+            )
+          })}
         </div>
 
         {/* Mobile toggle */}
@@ -68,21 +86,29 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="border-t border-border bg-card px-4 pb-4 pt-2 md:hidden">
           <div className="flex flex-col gap-1">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                to={targetHref(link.href)}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  "rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors",
-                  pathname === link.href
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {link.label}
-              </Link>
-            ))}
+            {navLinks.map((link) => {
+              const isApply = link.href === "/apply";
+              const isStaffLink = link.href === "/staff";
+
+              if (isLogin && role === "staff" && isApply) return null;
+              if (isLogin && role === "applicant" && isStaffLink) return null;
+
+              return (
+                <Link
+                  key={link.href}
+                  to={targetHref(link.href)}
+                  onClick={() => setMobileOpen(false)}
+                  className={cn(
+                    "rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors",
+                    pathname === link.href
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}
