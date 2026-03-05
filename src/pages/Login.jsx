@@ -2,6 +2,7 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 // --- Main Component: Login Form ---
 export default function LoginForm() {
@@ -16,27 +17,55 @@ export default function LoginForm() {
   })
 
   // --- Handlers ---
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
 
-    // Mock API call delay
-    setTimeout(() => {
-      setLoading(false)
-      if (typeof window !== "undefined") {
-        const isStaff = form.userId.toUpperCase().startsWith("S")
-        localStorage.setItem("isLogin", "true")
-        localStorage.setItem("role", isStaff ? "staff" : "applicant")
+    // 1. Start the "Simulation" delay
+    setTimeout(async () => {
+      try {
+        // 2. Fetch the user from your Supabase table
+        const { data: user, error } = await supabase
+          .from("USER")
+          .select("*")
+          .eq("user_number", form.userId)
+          .single();
+
+        if (error || !user) {
+          alert("ไม่พบบัญชีผู้ใช้ในระบบ");
+          setLoading(false);
+          return;
+        }
+
+        // 3. Manual Password Check
+        if (user.password !== form.password) {
+          alert("รหัสผ่านไม่ถูกต้อง");
+          setLoading(false);
+          return;
+        }
+
+        // 4. Success! Save to localStorage
+        if (typeof window !== "undefined") {
+          localStorage.setItem("isLogin", "true");
+          localStorage.setItem("role", user.role);
+          localStorage.setItem("userName", user.name);
+        }
+
+        // 5. Navigate based on the role in the DB
+        if (user.role === "staff") {
+          alert("ยินดีต้อนรับกลับ, เจ้าหน้าที่!");
+          navigate("/staff");
+        } else {
+          alert(`ยินดีต้อนรับกลับ, คุณ${user.name}!`);
+          navigate("/apply");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+      } finally {
+        setLoading(false);
       }
-      // Basic mock check for staff vs student
-      if (form.userId.toUpperCase().startsWith("S")) {
-        alert("ยินดีต้อนรับกลับ, เจ้าหน้าที่!")
-        navigate("/staff")
-      } else {
-        alert("ยินดีต้อนรับกลับ! กำลังนำคุณไปยังหน้าสมัครเรียน")
-        navigate("/apply")
-      }
-    }, 1000)
+    }, 1000); // Your 1-second mock delay
   }
 
   return (

@@ -24,27 +24,30 @@ function RequireAuth({ children }) {
 }
 
 function RequireApplicant({ children }) {
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
-  const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+  const isLogin = localStorage.getItem("isLogin") === "true";
+  const role = localStorage.getItem("role");
 
   if (!isLogin) {
-    return <Navigate to="/login" />
+    return <Navigate to="/login" replace />;
   }
-  if (role !== "applicant") {
-    return <Navigate to="/staff" />
+  
+  // Check for "student" OR "applicant" depending on what you saved in DB
+  if (role !== "applicant" && role !== "student") {
+    return <Navigate to="/staff" replace />;
   }
   return children;
 }
 
 function RequireStaff({ children }) {
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
-  const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+  const isLogin = localStorage.getItem("isLogin") === "true";
+  const role = localStorage.getItem("role");
 
   if (!isLogin) {
-    return <Navigate to="/login" />
+    return <Navigate to="/login" replace />;
   }
   if (role !== "staff") {
-    return <Navigate to="/apply" />
+    // Redirect students/applicants to their home base
+    return <Navigate to="/apply" replace />;
   }
   return children;
 }
