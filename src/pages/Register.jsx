@@ -2,6 +2,7 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { supabase } from "../lib/supabase"
 
 // --- Main Component: Register Form ---
 export default function RegisterForm() {
@@ -18,17 +19,33 @@ export default function RegisterForm() {
   })
 
   // --- Handlers ---
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+
+    const {data, error} = await supabase.from("USER").insert([
+      {
+        user_number: form.nationalId,
+        password: form.password,
+        name: form.fullName,
+        role: "student",
+            }
+    ])
     
     // Mock API call delay
     setTimeout(() => {
       setLoading(false)
+      if (error) {
+        console.error(error);
+        alert("สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
+        return
+      }
       alert("สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว")
       navigate("/login")
     }, 1200)
   }
+
+  
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
