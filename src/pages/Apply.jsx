@@ -11,6 +11,10 @@ const rounds = [
   { value: "4", label: "รอบที่ 4 - Direct Admission" },
 ]
 
+const studyPlans = ["วิทย์-คณิต", "ศิลป์–คำนวณ", "ศิลป์-ภาษา", "ศิลป์-สังคม", "อื่นๆ"]
+const educationChoice = ["ม.6", "ปวช.", "ปวส.", "สอบเทียบ", "เด็กซิ่ว"]
+let gpax = 0.0
+
 // --- Helper Icon Component ---
 function ChevronDownIcon(props) {
   return (
@@ -27,6 +31,9 @@ export default function ApplicationForm() {
   const [selectedFaculty, setSelectedFaculty] = useState("")
   const [selectedMajor, setSelectedMajor] = useState("")
   const [studyPlan, setStudyPlan] = useState("")
+  const [education, setEducation] = useState("")
+  const [grade, setGrade] = useState("")
+  const [studyPlanOther, setStudyPlanOther] = useState("")
   
   // File Upload States
   const [file, setFile] = useState(null)
@@ -83,6 +90,8 @@ export default function ApplicationForm() {
     setSelectedFaculty("")
     setSelectedMajor("")
     setStudyPlan("")
+    setEducation("")
+    setStudyPlanOther("")
     setFile(null)
     setShowSuccess(false)
   }
@@ -99,6 +108,9 @@ export default function ApplicationForm() {
           <p className="text-sm text-muted-foreground">
             กรอกข้อมูลด้านล่างเพื่อส่งใบสมัคร TCAS ของคุณ
           </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            ช่องที่มีเครื่องหมาย <span className="text-red-500">*</span> จำเป็นต้องกรอก
+          </p>
         </div>
 
         {/* --- Form Section --- */}
@@ -107,7 +119,9 @@ export default function ApplicationForm() {
             
             {/* Input: Admission Round */}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium leading-none">รอบการรับสมัคร</label>
+              <label className="text-sm font-medium leading-none">
+                รอบการรับสมัคร <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <select
                   value={selectedRound}
@@ -126,7 +140,9 @@ export default function ApplicationForm() {
 
             {/* Input: Faculty */}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium leading-none">คณะ</label>
+              <label className="text-sm font-medium leading-none">
+                คณะ <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <select
                   value={selectedFaculty}
@@ -148,7 +164,9 @@ export default function ApplicationForm() {
 
             {/* Input: Major */}
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium leading-none">สาขาวิชา</label>
+              <label className="text-sm font-medium leading-none">
+                สาขาวิชา <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <select
                   value={selectedMajor}
@@ -168,17 +186,95 @@ export default function ApplicationForm() {
               </div>
             </div>
 
-            {/* Input: Study Plan */}
+            {/* Input: Education level */}
             <div className="flex flex-col gap-2">
-              <label htmlFor="studyPlan" className="text-sm font-medium leading-none">แผนการเรียนปัจจุบัน</label>
-              <input
-                id="studyPlan"
-                placeholder="เช่น วิทย์-คณิต, ศิลป์-คำนวณ"
-                value={studyPlan}
-                onChange={(e) => setStudyPlan(e.target.value)}
-                required
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
+              <label htmlFor="education" className="text-sm font-medium leading-none">
+                ระดับการศึกษา <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  id="education"
+                  value={education}
+                  onChange={(e) => setEducation(e.target.value)}
+                  className="flex h-10 w-full appearance-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  required
+                >
+                  <option value="" disabled>เลือกระดับการศึกษา</option>
+                  {educationChoice.map((plan) => (
+                    <option key={plan} value={plan}>
+                      {plan}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDownIcon className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="grade" className="text-sm font-medium leading-none">
+                GPAX <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  id="grade"
+                  value={grade}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    if (raw === "") {
+                      setGrade("")
+                      return
+                    }
+                    const num = parseFloat(raw)
+                    if (Number.isNaN(num)) return
+                    const clamped = Math.max(0, Math.min(4, num))
+                    setGrade(clamped.toFixed(2))
+                  }}
+                  type="number"
+                  max="4.0"
+                  min="0.0"
+                  step="0.01"
+                  className="flex h-10 w-full appearance-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="studyPlan" className="text-sm font-medium leading-none">
+                แผนการเรียนปัจจุบัน <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <select
+                  id="studyPlan"
+                  value={studyPlan}
+                  onChange={(e) => {
+                    setStudyPlan(e.target.value)
+                    if (e.target.value !== "อื่นๆ") {
+                      setStudyPlanOther("")
+                    }
+                  }}
+                  className="flex h-10 w-full appearance-none items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  required
+                >
+                  <option value="" disabled>เลือกแผนการเรียน</option>
+                  {studyPlans.map((plan) => (
+                    <option key={plan} value={plan}>
+                      {plan}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDownIcon className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none" />
+              </div>
+              {studyPlan === "อื่นๆ" && (
+                <input
+                  type="text"
+                  placeholder="ระบุแผนการเรียนของคุณ"
+                  value={studyPlanOther}
+                  onChange={(e) => setStudyPlanOther(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  required
+                />
+              )}
             </div>
 
             {/* Input: Drag & Drop File Upload */}
@@ -239,7 +335,15 @@ export default function ApplicationForm() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !selectedRound || !selectedFaculty || !selectedMajor || !studyPlan}
+              disabled={
+                loading ||
+                !selectedRound ||
+                !selectedFaculty ||
+                !selectedMajor ||
+                !education ||
+                !studyPlan ||
+                (studyPlan === "อื่นๆ" && !studyPlanOther)
+              }
               className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
             >
               {loading ? "กำลังส่งข้อมูล..." : "ยืนยันการสมัคร"}

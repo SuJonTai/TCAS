@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useLocation } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 import { GraduationCap, Menu, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -13,10 +13,20 @@ const navLinks = [
 
 export default function Navbar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const pathname = location.pathname
   const [mobileOpen, setMobileOpen] = useState(false)
   const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
   const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+
+  const handleLogout = () => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("isLogin", "false")
+      localStorage.removeItem("role")
+    }
+    navigate("/")
+  }
+
   const targetHref = href => {
     const needsApplicant = href === "/apply";
     const needsStaff = href === "/staff";
@@ -51,9 +61,25 @@ export default function Navbar() {
           {navLinks.map((link) => {
             const isApply = link.href === "/apply";
             const isStaffLink = link.href === "/staff";
+            const isLoginLink = link.href === "/login";
 
             if (isLogin && role === "staff" && isApply) return null;
             if (isLogin && role === "applicant" && isStaffLink) return null;
+
+            // When logged in, turn "เข้าสู่ระบบ" into a Logout button
+            if (isLogin && isLoginLink) {
+              return (
+                <button
+                  key={link.href}
+                  onClick={handleLogout}
+                  className={cn(
+                    "rounded-lg px-3.5 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  ออกจากระบบ
+                </button>
+              )
+            }
 
             return (
               <Link
@@ -89,9 +115,27 @@ export default function Navbar() {
             {navLinks.map((link) => {
               const isApply = link.href === "/apply";
               const isStaffLink = link.href === "/staff";
+              const isLoginLink = link.href === "/login";
 
               if (isLogin && role === "staff" && isApply) return null;
               if (isLogin && role === "applicant" && isStaffLink) return null;
+
+              if (isLogin && isLoginLink) {
+                return (
+                  <button
+                    key={link.href}
+                    onClick={() => {
+                      handleLogout()
+                      setMobileOpen(false)
+                    }}
+                    className={cn(
+                      "rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    ออกจากระบบ
+                  </button>
+                )
+              }
 
               return (
                 <Link

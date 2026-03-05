@@ -28,10 +28,11 @@ export default function ApplicantDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   
-  // States for confirmation dialog
+  // States for confirmation and result dialogs
   const [showDialog, setShowDialog] = useState(false)
   const [dialogAction, setDialogAction] = useState("approve")
   const [currentStatus, setCurrentStatus] = useState(null)
+  const [showResultDialog, setShowResultDialog] = useState(false)
 
   // Fetch mock applicant data
   const applicant = mockApplicants.find((a) => a.id === id)
@@ -57,8 +58,14 @@ export default function ApplicantDetailPage() {
   // --- Handlers ---
   const handleAction = (action) => {
     setDialogAction(action)
-    setCurrentStatus(action === "approve" ? "approved" : "rejected")
     setShowDialog(true)
+  }
+
+  const handleConfirm = () => {
+    const newStatus = dialogAction === "approve" ? "approved" : "rejected"
+    setCurrentStatus(newStatus)
+    setShowDialog(false)
+    setShowResultDialog(true)
   }
 
   // Data mapping for personal details
@@ -197,19 +204,64 @@ export default function ApplicantDetailPage() {
                 )}
               </div>
               <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold leading-none tracking-tight text-foreground">
+                ยืนยันการเปลี่ยนสถานะ
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                คุณต้องการเปลี่ยนสถานะของผู้สมัครคนนี้เป็น{" "}
+                <span className="font-semibold">
+                  {dialogAction === "approve" ? "ผ่านการคัดเลือก" : "ไม่ผ่านการคัดเลือก"}
+                </span>
+                หรือไม่?
+              </p>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={handleConfirm}
+                className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                ยืนยัน
+              </button>
+              <button
+                onClick={() => setShowDialog(false)}
+                className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Section: Result Dialog after confirmation --- */}
+      {showResultDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-lg">
+            <div className="flex flex-col items-center space-y-1.5 text-center">
+              <div
+                className={`mb-2 flex h-14 w-14 items-center justify-center rounded-full ${
+                  currentStatus === "approved" ? "bg-emerald-100" : "bg-red-100"
+                }`}
+              >
+                {currentStatus === "approved" ? (
+                  <CheckCircle className="h-8 w-8 text-emerald-600" />
+                ) : (
+                  <XCircle className="h-8 w-8 text-red-600" />
+                )}
+              </div>
+              <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold leading-none tracking-tight text-foreground">
                 บันทึกสถานะสำเร็จ
               </h2>
               <p className="text-sm text-muted-foreground">
                 สถานะของผู้สมัครถูกบันทึกเป็น{" "}
                 <span className="font-semibold">
-                  {dialogAction === "approve" ? "ผ่านการคัดเลือก" : "ไม่ผ่านการคัดเลือก"}
+                  {currentStatus === "approved" ? "ผ่านการคัดเลือก" : "ไม่ผ่านการคัดเลือก"}
                 </span>{" "}
                 เรียบร้อยแล้ว
               </p>
             </div>
             <button
               onClick={() => {
-                setShowDialog(false)
+                setShowResultDialog(false)
                 navigate("/staff/results")
               }}
               className="mt-4 inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
