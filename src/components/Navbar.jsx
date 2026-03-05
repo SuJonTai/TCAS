@@ -15,7 +15,12 @@ export default function Navbar() {
   const location = useLocation()
   const pathname = location.pathname
   const [mobileOpen, setMobileOpen] = useState(false)
-
+  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") : false;
+  const targetHref = href => {
+    const needsAuth = href === "/apply" || href === "/staff";
+    if (isLogin && needsAuth) return "/login"
+    return href
+  }
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-md">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 lg:px-8">
@@ -35,8 +40,8 @@ export default function Navbar() {
         <div className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => (
             <Link
-              key={link.href}
-              to={link.href}
+              key={link.href} 
+              to={targetHref(link.href)}
               className={cn(
                 "rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
                 pathname === link.href
@@ -66,7 +71,7 @@ export default function Navbar() {
             {navLinks.map((link) => (
               <Link
                 key={link.href}
-                to={link.href}
+                to={targetHref(link.href)}
                 onClick={() => setMobileOpen(false)}
                 className={cn(
                   "rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors",

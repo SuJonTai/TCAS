@@ -33,6 +33,7 @@ function AnnouncementBanner() {
 }
 
 function HeroSection() {
+  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") : false;
   return (
     <section className="px-4 py-16 lg:py-24">
       <div className="mx-auto max-w-4xl text-center">
@@ -52,7 +53,7 @@ function HeroSection() {
               รายละเอียดรับสมัคร
             </Button>
           </Link>
-          <Link to="/apply">
+          <Link to={isLogin ? "/apply" : "/login"}>
             <Button size="lg" className="gap-2">
               <UserPlus className="h-4 w-4" />
               สมัครเรียน

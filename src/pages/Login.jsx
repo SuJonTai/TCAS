@@ -23,6 +23,9 @@ export default function LoginForm() {
     // Mock API call delay
     setTimeout(() => {
       setLoading(false)
+      if (typeof window !== "undefined") {
+        localStorage.setItem("isLogin", true)
+      }
       // Basic mock check for staff vs student
       if (form.userId.toUpperCase().startsWith("S")) {
         alert("ยินดีต้อนรับกลับ, เจ้าหน้าที่!")
