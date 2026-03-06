@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import bcrypt from "bcryptjs"
 
 // --- Main Component: Login Form ---
 export default function LoginForm() {
@@ -20,44 +21,46 @@ export default function LoginForm() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
-
-    // 1. Start the "Simulation" delay
+  
     setTimeout(async () => {
       try {
-        // 2. Fetch the user from your Supabase table
         const { data: user, error } = await supabase
-          .from("USER")
+          .from("USERS")
           .select("*")
-          .eq("user_number", form.userId)
+          .eq("citizen_id", form.userId)
           .single();
-
+  
         if (error || !user) {
           alert("ไม่พบบัญชีผู้ใช้ในระบบ");
           setLoading(false);
           return;
         }
-
-        // 3. Manual Password Check
-        if (user.password !== form.password) {
+  
+        // 1. Secure Password Check!
+        // This compares the plain text input with the hashed DB password
+        const isPasswordValid = bcrypt.compareSync(form.password, user.password);
+  
+        if (!isPasswordValid) {
           alert("รหัสผ่านไม่ถูกต้อง");
           setLoading(false);
           return;
         }
 
         // 4. Success! Save to localStorage
-        if (typeof window !== "undefined") {
-          localStorage.setItem("isLogin", "true");
-          localStorage.setItem("role", user.role);
-          localStorage.setItem("userName", user.name);
-        }
+        // UPDATE: Adjusted to use user.first_name if you want to display it
+        localStorage.setItem("isLogin", "true");
+        localStorage.setItem("role", user.role);
+        localStorage.setItem("first_name", user.first_name); // SAVES THE NAME FOR NAVBAR
+        localStorage.setItem("user_id", user.id); // SAVES THE ID FOR APPLY.JSX
+        localStorage.setItem("userName", user.first_name || "Student");
 
-        // 5. Navigate based on the role in the DB
-        if (user.role === "staff") {
-          alert("ยินดีต้อนรับกลับ, เจ้าหน้าที่!");
+        alert("เข้าสู่ระบบสำเร็จ!");
+        
+        // Redirect based on role
+        if (user.role === "staff" || user.role === "admin") {
           navigate("/staff");
         } else {
-          alert(`ยินดีต้อนรับกลับ, คุณ${user.name}!`);
-          navigate("/apply");
+          navigate("/");
         }
       } catch (err) {
         console.error(err);
@@ -65,7 +68,7 @@ export default function LoginForm() {
       } finally {
         setLoading(false);
       }
-    }, 1000); // Your 1-second mock delay
+    }, 1000)
   }
 
   return (

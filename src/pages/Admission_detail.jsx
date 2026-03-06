@@ -1,173 +1,127 @@
-// --- Imports ---
+import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import {
-  ArrowLeft,
-  BookOpen,
-  Award,
-  Users,
-  ClipboardCheck,
-  Building2,
-  Layers,
-} from "lucide-react"
-import { faculties } from "@/lib/mock-data"
+import { ArrowLeft, BookOpen, Users, ClipboardCheck, Building2, Layers } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
-// --- Helper Function: Find major context from mock data ---
-function findMajorContext(majorId) {
-  for (const faculty of faculties) {
-    for (const dept of faculty.departments) {
-      const major = dept.majors.find((m) => m.id === majorId)
-      if (major) {
-        return { faculty, dept, major }
-      }
-    }
-  }
-  return null
-}
-
-// --- Sub-component: Admission Round Detail Card ---
 function RoundCard({ round }) {
   return (
     <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="flex flex-col space-y-1.5 p-6 pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full border border-transparent bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/80">
-            รอบที่ {round.round}
+          <span className="inline-flex items-center rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+            รอบที่ {round.tcas_round}
           </span>
-          <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-xs font-semibold text-primary transition-colors hover:bg-accent hover:text-accent-foreground">
-            {round.roundName}
+          <span className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 text-xs font-semibold text-foreground">
+            {round.ADMISSION_PROJECTS?.project_name || "โครงการรับตรง"}
           </span>
         </div>
-        <h3 className="text-base font-semibold leading-none tracking-tight text-foreground">
-          {round.projectName}
-        </h3>
       </div>
-      <div className="p-6 pt-0">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          
-          {/* Seats Info */}
-          <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <Users className="h-4 w-4 text-primary" />
-            </div>
+      <div className="p-6 pt-3">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <Users className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="text-xs text-muted-foreground">จำนวนที่รับ</p>
-              <p className="text-lg font-bold text-foreground">{round.seats} คน</p>
+              <p className="text-xs text-muted-foreground">จำนวนรับ</p>
+              <p className="font-medium text-foreground">{round.max_seats} ที่นั่ง</p>
             </div>
           </div>
-
-          {/* GPA Info */}
-          <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <Award className="h-4 w-4 text-primary" />
-            </div>
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
             <div>
-              <p className="text-xs text-muted-foreground">เกรดเฉลี่ยขั้นต่ำ (GPAX)</p>
-              <p className="text-lg font-bold text-foreground">{round.minGPA.toFixed(2)}</p>
+              <p className="text-xs text-muted-foreground">GPAX ขั้นต่ำ</p>
+              <p className="font-medium text-foreground">{round.min_gpax ? round.min_gpax.toFixed(2) : "ไม่กำหนด"}</p>
             </div>
           </div>
-
-          {/* Test Required Info */}
-          <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <ClipboardCheck className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">คะแนนสอบที่ใช้</p>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {round.requiredTests.map((test) => (
-                  <span key={test} className="inline-flex items-center rounded-full border border-transparent bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/80">
-                    {test}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
         </div>
       </div>
     </div>
   )
 }
 
-// --- Main Component: Major Details Page ---
-export default function MajorDetailPage() {
-  const { id } = useParams() 
-  const context = findMajorContext(id)
+export default function AdmissionDetailPage() {
+  const { id } = useParams()
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  // Fallback for invalid major ID
-  if (!context) {
-    return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 text-center">
-        <h2 className="text-2xl font-bold">ไม่พบข้อมูลสาขาวิชานี้</h2>
-        <Link to="/admission">
-          <button className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            กลับไปหน้าเกณฑ์การรับสมัคร
-          </button>
-        </Link>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const fetchDetail = async () => {
+      const { data: progData, error } = await supabase
+        .from('PROGRAMS')
+        .select(`
+          id,
+          prog_name,
+          DEPARTMENTS (
+            dept_name,
+            FACULTIES ( faculty_name )
+          ),
+          ADMISSION_CRITERIA (
+            id,
+            tcas_round,
+            max_seats,
+            min_gpax,
+            academic_year,
+            ADMISSION_PROJECTS ( project_name )
+          )
+        `)
+        .eq('id', id)
+        .single()
+      
+      if (!error && progData) setData(progData)
+      setLoading(false)
+    }
+    fetchDetail()
+  }, [id])
 
-  const { faculty, dept, major } = context
+  if (loading) return <div className="p-12 text-center text-muted-foreground">กำลังโหลดข้อมูล...</div>
+  if (!data) return <div className="p-12 text-center text-red-500">ไม่พบข้อมูลสาขาวิชานี้</div>
+
+  const facultyName = data.DEPARTMENTS?.FACULTIES?.faculty_name
+  const deptName = data.DEPARTMENTS?.dept_name
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8">
-      
-      {/* --- Section: Header & Navigation --- */}
-      <div className="mb-6">
-        <Link to="/admission">
-          <button className="mb-4 inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
-            <ArrowLeft className="h-4 w-4" /> กลับหน้าค้นหาเกณฑ์
-          </button>
-        </Link>
+      <Link to="/admission" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> กลับหน้ารวมเกณฑ์รับสมัคร
+      </Link>
 
-        {/* Breadcrumb path */}
-        <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Building2 className="h-3.5 w-3.5" />
-            {faculty.name}
-          </span>
-          <span>/</span>
-          <span className="flex items-center gap-1">
-            <Layers className="h-3.5 w-3.5" />
-            {dept.name}
-          </span>
+      <div className="mb-8 flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1"><Building2 className="h-4 w-4" /> {facultyName}</span>
+          <span className="text-border">/</span>
+          <span className="flex items-center gap-1"><Layers className="h-4 w-4" /> {deptName}</span>
         </div>
 
-        {/* Major Title */}
         <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-primary/10 p-2.5">
-            <BookOpen className="h-6 w-6 text-primary" />
-          </div>
+          <div className="rounded-lg bg-primary/10 p-2.5"><BookOpen className="h-6 w-6 text-primary" /></div>
           <div>
-            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-foreground md:text-3xl text-balance">
-              {major.name}
+            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-foreground md:text-3xl">
+              {data.prog_name}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              เปิดรับสมัครทั้งหมด {major.rounds.length} รอบ
+              เปิดรับสมัครทั้งหมด {data.ADMISSION_CRITERIA?.length || 0} รอบ
             </p>
           </div>
         </div>
       </div>
 
-      <div className="mb-8 h-[1px] w-full shrink-0 bg-border" />
+      <div className="mb-8 h-[1px] w-full bg-border" />
 
-      {/* --- Section: Admission Rounds List --- */}
       <h2 className="mb-4 font-[family-name:var(--font-poppins)] text-lg font-semibold text-foreground">
         รอบที่เปิดรับสมัคร
       </h2>
 
       <div className="flex flex-col gap-4">
-        {major.rounds.map((round) => (
-          <RoundCard key={`${round.round}-${round.projectName}`} round={round} />
-        ))}
+        {data.ADMISSION_CRITERIA?.length > 0 ? (
+          data.ADMISSION_CRITERIA.map((round) => <RoundCard key={round.id} round={round} />)
+        ) : (
+          <p className="text-muted-foreground text-sm">ยังไม่มีการกำหนดเกณฑ์รับสมัครสำหรับสาขาวิชานี้</p>
+        )}
       </div>
 
-      {/* --- Section: Action Button --- */}
       <div className="mt-8">
         <Link to="/apply">
-          <button className="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-8 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto">
-            สมัครเรียนสาขานี้
+          <button className="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-8 text-sm font-medium text-primary-foreground hover:bg-primary/90 md:w-auto">
+            ไปที่หน้าสมัครเรียน
           </button>
         </Link>
       </div>

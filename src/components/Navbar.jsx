@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { GraduationCap, Menu, X } from "lucide-react"
+import { GraduationCap, Menu, X, User } from "lucide-react" // Added User icon
 import { cn } from "@/lib/utils"
 
 const navLinks = [
@@ -16,13 +16,18 @@ export default function Navbar() {
   const navigate = useNavigate()
   const pathname = location.pathname
   const [mobileOpen, setMobileOpen] = useState(false)
+  
+  // Read from localStorage
   const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
   const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+  const firstName = typeof window !== "undefined" ? localStorage.getItem("first_name") : null; // Get user's first name
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
       localStorage.setItem("isLogin", "false")
       localStorage.removeItem("role")
+      localStorage.removeItem("first_name") // Clear name on logout
+      localStorage.removeItem("user_id")
     }
     navigate("/")
   }
@@ -37,10 +42,11 @@ export default function Navbar() {
     if (isLogin && needsApplicant && role === "staff") return "/staff"
 
     // Applicant should not go to staff pages
-    if (isLogin && needsStaff && role === "applicant") return "/apply"
+    if (isLogin && needsStaff && role === "applicant" || role === "student") return "/apply"
 
     return href
   }
+
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-md">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 lg:px-8">
@@ -56,7 +62,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* Desktop */}
+        {/* Desktop Menu */}
         <div className="hidden items-center gap-1 md:flex">
           {navLinks.map((link) => {
             const isApply = link.href === "/apply";
@@ -64,20 +70,25 @@ export default function Navbar() {
             const isLoginLink = link.href === "/login";
 
             if (isLogin && role === "staff" && isApply) return null;
-            if (isLogin && role === "applicant" && isStaffLink) return null;
+            if (isLogin && (role === "applicant" || role === "student") && isStaffLink) return null;
 
-            // When logged in, turn "เข้าสู่ระบบ" into a Logout button
+            // When logged in, show User Name and Logout Button
             if (isLogin && isLoginLink) {
               return (
-                <button
-                  key={link.href}
-                  onClick={handleLogout}
-                  className={cn(
-                    "rounded-lg px-3.5 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  ออกจากระบบ
-                </button>
+                <div key={link.href} className="ml-2 flex items-center gap-3 border-l border-border pl-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
+                      <User className="h-4 w-4 text-primary" />
+                    </div>
+                    <span>{firstName || "ผู้ใช้งาน"}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="rounded-lg px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    ออกจากระบบ
+                  </button>
+                </div>
               )
             }
 
@@ -118,22 +129,27 @@ export default function Navbar() {
               const isLoginLink = link.href === "/login";
 
               if (isLogin && role === "staff" && isApply) return null;
-              if (isLogin && role === "applicant" && isStaffLink) return null;
+              if (isLogin && (role === "applicant" || role === "student") && isStaffLink) return null;
 
               if (isLogin && isLoginLink) {
                 return (
-                  <button
-                    key={link.href}
-                    onClick={() => {
-                      handleLogout()
-                      setMobileOpen(false)
-                    }}
-                    className={cn(
-                      "rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    ออกจากระบบ
-                  </button>
+                  <div key={link.href} className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+                    <div className="flex items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-foreground">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
+                        <User className="h-4 w-4 text-primary" />
+                      </div>
+                      <span>{firstName || "ผู้ใช้งาน"}</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleLogout()
+                        setMobileOpen(false)
+                      }}
+                      className="rounded-lg px-3.5 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      ออกจากระบบ
+                    </button>
+                  </div>
                 )
               }
 

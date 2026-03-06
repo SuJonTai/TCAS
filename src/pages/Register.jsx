@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
 import { supabase } from "../lib/supabase"
+import bcrypt from "bcryptjs"
 
 // --- Main Component: Register Form ---
 export default function RegisterForm() {
@@ -18,32 +19,49 @@ export default function RegisterForm() {
     age: "",
   })
 
-  // --- Handlers ---
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
+// --- Handlers ---
+const handleSubmit = async (e) => {
+  e.preventDefault()
+  setLoading(true)
 
-    const {data, error} = await supabase.from("USER").insert([
-      {
-        user_number: form.nationalId,
-        password: form.password,
-        name: form.fullName,
-        role: "student",
-            }
-    ])
-    
-    // Mock API call delay
-    setTimeout(() => {
-      setLoading(false)
-      if (error) {
-        console.error(error);
-        alert("สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง")
-        return
+  // Split the full name
+  const nameParts = form.fullName.trim().split(" ");
+  const firstName = nameParts[0];
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+
+  // 1. Hash the password here! (10 is the standard "salt" level)
+  const salt = bcrypt.genSaltSync(10);
+  const hashedPassword = bcrypt.hashSync(form.password, salt);
+
+  // 2. Send the HASHED password to Supabase
+  const { data, error } = await supabase.from("USERS").insert([
+    {
+      citizen_id: form.nationalId, 
+      password: hashedPassword, // <-- Using the hashed password
+      first_name: firstName,       
+      last_name: lastName,
+      role: "student",
+    }
+  ])
+  
+  // API call delay
+  setTimeout(() => {
+    setLoading(false)
+    if (error) {
+      console.error("Supabase Error:", error);
+      
+      // Check if it's a duplicate citizen_id error
+      if (error.code === '23505') {
+        alert("รหัสบัตรประชาชนนี้ถูกใช้งานแล้ว");
+      } else {
+        alert("สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
       }
-      alert("สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว")
-      navigate("/login")
-    }, 1200)
-  }
+      return
+    }
+    alert("สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว")
+    navigate("/login")
+  }, 1200)
+}
 
   
 
