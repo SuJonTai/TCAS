@@ -1,5 +1,4 @@
-// --- Imports ---
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Link, useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
@@ -9,7 +8,7 @@ import {
   CheckCircle,
   XCircle,
 } from "lucide-react"
-import { mockApplicants } from "@/lib/mock-data"
+import { supabase } from "@/lib/supabase"
 
 // --- Helper Component: Dynamic Status Badge ---
 function StatusBadge({ status }) {
@@ -23,265 +22,249 @@ function StatusBadge({ status }) {
   }
 }
 
-// --- Main Component: Applicant Detail View for Staff ---
 export default function ApplicantDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   
-  // States for confirmation and result dialogs
-  const [showDialog, setShowDialog] = useState(false)
-  const [dialogAction, setDialogAction] = useState("approve")
-  const [currentStatus, setCurrentStatus] = useState(null)
+  const [applicant, setApplicant] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  
+  const [currentStatus, setCurrentStatus] = useState("pending")
   const [showResultDialog, setShowResultDialog] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
 
-  // Fetch mock applicant data
-  const applicant = mockApplicants.find((a) => a.id === id)
+  // 1. Fetch the application data on load
+  useEffect(() => {
+    const fetchApplicantData = async () => {
+      const { data, error } = await supabase
+        .from('APPLICATION')
+        .select(`
+          id,
+          status,
+          gpax,
+          study_plan,
+          high_school,
+          USERS ( first_name, last_name, citizen_id ),
+          ADMISSION_CRITERIA (
+            tcas_round,
+            PROGRAMS (
+              prog_name,
+              DEPARTMENTS (
+                dept_name,
+                FACULTIES ( faculty_name )
+              )
+            )
+          )
+        `)
+        .eq('id', id)
+        .single()
 
-  // Fallback for invalid ID
-  if (!applicant) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="text-center">
-          <p className="text-lg font-medium text-foreground">ไม่พบข้อมูลผู้สมัคร</p>
-          <Link to="/staff/results">
-            <button className="mt-4 inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
-              กลับหน้ารายชื่อ
-            </button>
-          </Link>
-        </div>
-      </div>
-    )
-  }
-
-  const status = currentStatus ?? applicant.status
-
-  // --- Handlers ---
-  const handleAction = (action) => {
-    setDialogAction(action)
-    setShowDialog(true)
-  }
-
-  const handleConfirm = () => {
-    let newStatus
-    if (dialogAction === "approve") {
-      newStatus = "approved"
-    } else if (dialogAction === "reject") {
-      newStatus = "rejected"
-    } else {
-      // undo actions -> back to pending
-      newStatus = "pending"
+      if (!error && data) {
+        setApplicant(data)
+        setCurrentStatus(data.status || "pending")
+      }
+      setLoading(false)
     }
 
-    // Update local state for this detail view
+    fetchApplicantData()
+  }, [id])
+
+  // 2. Handle updating the status in Supabase
+// 2. Handle updating the status in Supabase
+const handleUpdateStatus = async (newStatus) => {
+  setSaving(true)
+  
+  const { error } = await supabase
+    .from('APPLICATION')
+    .update({ status: newStatus })
+    .eq('id', id)
+
+  setSaving(false)
+  setConfirmAction(null) // <-- Close the confirm popup
+
+  if (error) {
+    alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล: " + error.message)
+  } else {
     setCurrentStatus(newStatus)
-
-    // Persist change to the shared mock data used by the list view
-    const idx = mockApplicants.findIndex((a) => a.id === id)
-    if (idx !== -1) {
-      mockApplicants[idx].status = newStatus
-    }
-
-    setShowDialog(false)
-    setShowResultDialog(true)
+    setShowResultDialog(true) // Show success popup
   }
+}
 
-  // Data mapping for personal details
-  const details = [
-    { label: "ชื่อ-นามสกุล", value: applicant.name },
-    { label: "รหัสบัตรประชาชน", value: applicant.nationalId },
-    { label: "อายุ", value: String(applicant.age) },
-    { label: "รอบการรับสมัคร", value: `รอบที่ ${applicant.round}` },
-    { label: "คณะ", value: applicant.faculty },
-    { label: "สาขาวิชา", value: applicant.major },
-    { label: "เกรดเฉลี่ย (GPAX)", value: applicant.gpa.toFixed(2) },
-  ]
+  if (loading) return <div className="p-12 text-center text-muted-foreground">กำลังโหลดข้อมูลผู้สมัคร...</div>
+  if (!applicant) return <div className="p-12 text-center text-red-500">ไม่พบข้อมูลผู้สมัครนี้</div>
+
+  // Simplify data access
+  const user = applicant.USERS || {}
+  const criteria = applicant.ADMISSION_CRITERIA || {}
+  const program = criteria.PROGRAMS || {}
+  const dept = program.DEPARTMENTS || {}
+  const faculty = dept.FACULTIES || {}
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 lg:px-8">
-      {/* Top Navigation */}
-      <Link to="/staff/results">
-        <button className="mb-4 inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground">
-          <ArrowLeft className="h-4 w-4" /> กลับหน้ารายชื่อ
-        </button>
+    <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8">
+      <Link to="/staff/results" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> กลับหน้ารายชื่อ
       </Link>
 
-      <div className="flex flex-col gap-6">
-        
-        {/* --- Section: Personal Information Card --- */}
-        <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-          <div className="flex flex-col space-y-1.5 p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                  <User className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-[family-name:var(--font-poppins)] text-xl font-bold tracking-tight text-foreground">
-                    {applicant.name}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    รหัสผู้สมัคร: {applicant.id}
-                  </p>
-                </div>
-              </div>
-              <StatusBadge status={status} />
-            </div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <User className="h-8 w-8 text-primary" />
           </div>
-          <div className="p-6 pt-0">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {details.map((d) => (
-                <div key={d.label}>
-                  <p className="text-xs text-muted-foreground">{d.label}</p>
-                  <p className="text-sm font-medium text-foreground">{d.value}</p>
-                </div>
-              ))}
-            </div>
+          <div>
+            <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold tracking-tight text-foreground md:text-3xl">
+              {user.first_name} {user.last_name}
+            </h1>
+            <p className="text-muted-foreground">รหัสบัตรประชาชน: {user.citizen_id || "-"}</p>
           </div>
         </div>
-
-        {/* --- Section: Academic & Portfolio Card --- */}
-        <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-          <div className="flex flex-col space-y-1.5 p-6">
-            <div className="flex items-center gap-2">
-              <GraduationCap className="h-5 w-5 text-primary" />
-              <h3 className="text-base font-semibold tracking-tight text-foreground">
-                ข้อมูลการศึกษา
-              </h3>
-            </div>
-          </div>
-          <div className="flex flex-col gap-4 p-6 pt-0">
-            <div>
-              <p className="text-xs text-muted-foreground">แผนการเรียน</p>
-              <p className="text-sm font-medium text-foreground">
-                {applicant.studyPlan}
-              </p>
-            </div>
-            <div className="h-[1px] w-full shrink-0 bg-border" />
-            <div>
-              <p className="mb-2 text-xs text-muted-foreground">ไฟล์แฟ้มสะสมผลงาน (Portfolio)</p>
-              {applicant.portfolioUrl ? (
-                <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-                  <FileText className="h-8 w-8 text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {applicant.portfolioUrl.split("/").pop()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      เอกสาร PDF
-                    </p>
-                  </div>
-                  <button className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
-                    ดูไฟล์
-                  </button>
-                </div>
-              ) : (
-                <p className="text-sm italic text-muted-foreground">
-                  ไม่ได้อัปโหลดแฟ้มสะสมผลงาน
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* --- Section: Action Buttons --- */}
-        <div className="flex gap-3">
-          <button
-            className="inline-flex h-10 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => handleAction(status === "approved" ? "undoApprove" : "approve")}
-            disabled={status === "rejected"}
-          >
-            <CheckCircle className="h-4 w-4" />
-            {status === "approved" ? "ยกเลิกผลการอนุมัติ" : "ผ่าน / อนุมัติ"}
-          </button>
-          <button
-            className="inline-flex h-10 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-            onClick={() => handleAction(status === "rejected" ? "undoReject" : "reject")}
-            disabled={status === "approved"}
-          >
-            <XCircle className="h-4 w-4" />
-            {status === "rejected" ? "ยกเลิกผลการปฏิเสธ" : "ไม่ผ่าน / ปฏิเสธ"}
-          </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">สถานะปัจจุบัน:</span>
+          <StatusBadge status={currentStatus} />
         </div>
       </div>
 
-      {/* --- Section: Confirmation Dialog --- */}
-      {showDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-lg">
-            <div className="flex flex-col items-center space-y-1.5 text-center">
-              <div
-                className={`mb-2 flex h-14 w-14 items-center justify-center rounded-full ${
-                  dialogAction === "approve"
-                    ? "bg-emerald-100"
-                    : dialogAction === "reject"
-                    ? "bg-red-100"
-                    : "bg-secondary/40"
-                }`}
-              >
-                {dialogAction === "approve" ? (
-                  <CheckCircle className="h-8 w-8 text-emerald-600" />
-                ) : dialogAction === "reject" ? (
-                  <XCircle className="h-8 w-8 text-red-600" />
-                ) : (
-                  <CheckCircle className="h-8 w-8 text-foreground" />
-                )}
-              </div>
-              <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold leading-none tracking-tight text-foreground">
-                ยืนยันการเปลี่ยนสถานะ
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {dialogAction === "approve" && (
-                  <>
-                    คุณต้องการเปลี่ยนสถานะของผู้สมัครคนนี้เป็น{" "}
-                    <span className="font-semibold">ผ่านการคัดเลือก</span> หรือไม่?
-                  </>
-                )}
-                {dialogAction === "reject" && (
-                  <>
-                    คุณต้องการเปลี่ยนสถานะของผู้สมัครคนนี้เป็น{" "}
-                    <span className="font-semibold">ไม่ผ่านการคัดเลือก</span> หรือไม่?
-                  </>
-                )}
-                {(dialogAction === "undoApprove" || dialogAction === "undoReject") && (
-                  <>
-                    คุณต้องการยกเลิกผลการตัดสิน และเปลี่ยนสถานะกลับเป็น{" "}
-                    <span className="font-semibold">รอการตรวจสอบ</span> หรือไม่?
-                  </>
-                )}
-              </p>
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Academic Profile */}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-2 text-foreground">
+            <GraduationCap className="h-5 w-5 text-muted-foreground" />
+            <h2 className="font-[family-name:var(--font-poppins)] font-semibold">ข้อมูลการศึกษา</h2>
+          </div>
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-1">
+            <div>
+              <dt className="text-muted-foreground">โรงเรียน/สถานศึกษาเดิม</dt>
+              <dd className="font-medium text-foreground">{applicant.high_school || "-"}</dd>
             </div>
-            <div className="mt-4 flex gap-2">
+            <div>
+              <dt className="text-muted-foreground">แผนการเรียน</dt>
+              <dd className="font-medium text-foreground">{applicant.study_plan || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">เกรดเฉลี่ยสะสม (GPAX)</dt>
+              <dd className="font-medium text-foreground">{applicant.gpax ? applicant.gpax.toFixed(2) : "-"}</dd>
+            </div>
+          </dl>
+        </div>
+
+        {/* Application Details */}
+        <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="mb-4 flex items-center gap-2 text-foreground">
+            <FileText className="h-5 w-5 text-muted-foreground" />
+            <h2 className="font-[family-name:var(--font-poppins)] font-semibold">ข้อมูลการสมัคร</h2>
+          </div>
+          <dl className="grid grid-cols-1 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">คณะ</dt>
+              <dd className="font-medium text-foreground">{faculty.faculty_name || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">สาขาวิชา</dt>
+              <dd className="font-medium text-foreground">{program.prog_name || "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">รอบการรับสมัคร</dt>
+              <dd className="font-medium text-foreground">รอบที่ {criteria.tcas_round || "-"}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+{/* Action Buttons */}
+<div className="mt-8 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-6 sm:flex-row sm:items-center sm:justify-end">
+        <p className="text-sm text-muted-foreground sm:mr-auto">กรุณาตรวจสอบข้อมูลก่อนบันทึกสถานะ</p>
+        
+        {/* Reject / Undo Button */}
+        {currentStatus === "rejected" ? (
+          <button
+            onClick={() => setConfirmAction("pending")}
+            disabled={saving}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+          >
+            ยกเลิก (Undo)
+          </button>
+        ) : (
+          <button
+            onClick={() => setConfirmAction("rejected")}
+            disabled={saving}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50"
+          >
+            ไม่ผ่านการคัดเลือก
+          </button>
+        )}
+
+        {/* Approve / Undo Button */}
+        {currentStatus === "approved" ? (
+          <button
+            onClick={() => setConfirmAction("pending")}
+            disabled={saving}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+          >
+            ยกเลิก (Undo)
+          </button>
+        ) : (
+          <button
+            onClick={() => setConfirmAction("approved")}
+            disabled={saving}
+            className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+          >
+            ผ่านการคัดเลือก
+          </button>
+        )}
+      </div>
+
+      {/* Confirmation Dialog */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-lg animate-in zoom-in-95 duration-200">
+            <h2 className="mb-2 font-[family-name:var(--font-poppins)] text-lg font-semibold leading-none tracking-tight">
+              ยืนยันการดำเนินการ
+            </h2>
+            <p className="mb-6 text-sm text-muted-foreground">
+              {confirmAction === "pending" ? (
+                "คุณแน่ใจหรือไม่ที่จะยกเลิกสถานะ และเปลี่ยนกลับเป็น รอการตรวจสอบ?"
+              ) : (
+                <>
+                  คุณแน่ใจหรือไม่ที่จะเปลี่ยนสถานะผู้สมัครเป็น{" "}
+                  <span className={`font-semibold ${confirmAction === "approved" ? "text-emerald-600" : "text-red-600"}`}>
+                    {confirmAction === "approved" ? "ผ่านการคัดเลือก" : "ไม่ผ่านการคัดเลือก"}
+                  </span>?
+                </>
+              )}
+            </p>
+            <div className="flex gap-3">
               <button
-                onClick={handleConfirm}
-                className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                onClick={() => setConfirmAction(null)}
+                disabled={saving}
+                className="flex-1 inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
               >
-                ยืนยัน
+                ปิด
               </button>
               <button
-                onClick={() => setShowDialog(false)}
-                className="inline-flex h-10 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+                onClick={() => handleUpdateStatus(confirmAction)}
+                disabled={saving}
+                className={`flex-1 inline-flex h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${
+                  confirmAction === "approved" 
+                    ? "bg-emerald-600 hover:bg-emerald-700" 
+                    : confirmAction === "rejected"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-slate-600 hover:bg-slate-700" // Color for Undo confirm button
+                }`}
               >
-                ยกเลิก
+                {saving ? "กำลังบันทึก..." : "ยืนยัน"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- Section: Result Dialog after confirmation --- */}
+      {/* Success Dialog */}
       {showResultDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-lg border bg-card p-6 text-card-foreground shadow-lg">
             <div className="flex flex-col items-center space-y-1.5 text-center">
-              <div
-                className={`mb-2 flex h-14 w-14 items-center justify-center rounded-full ${
-                  currentStatus === "approved"
-                    ? "bg-emerald-100"
-                    : currentStatus === "rejected"
-                    ? "bg-red-100"
-                    : "bg-secondary/40"
-                }`}
-              >
+              <div className="mb-2">
                 {currentStatus === "approved" ? (
                   <CheckCircle className="h-8 w-8 text-emerald-600" />
                 ) : currentStatus === "rejected" ? (
@@ -296,11 +279,11 @@ export default function ApplicantDetailPage() {
               <p className="text-sm text-muted-foreground">
                 สถานะของผู้สมัครถูกบันทึกเป็น{" "}
                 <span className="font-semibold">
-                  {currentStatus === "approved"
-                    ? "ผ่านการคัดเลือก"
-                    : currentStatus === "rejected"
-                    ? "ไม่ผ่านการคัดเลือก"
-                    : "รอการตรวจสอบ"}
+                  {{
+                    "approved": "ผ่านการคัดเลือก",
+                    "rejected": "ไม่ผ่านการคัดเลือก",
+                    "pending": "รอการตรวจสอบ"
+                  }[currentStatus] || "รอการตรวจสอบ"}
                 </span>{" "}
                 เรียบร้อยแล้ว
               </p>
