@@ -15,7 +15,7 @@ import Register from './pages/Register';
 import StaffSearch from './pages/Staff';
 import StaffResults from './pages/Staff_results';
 import SuperAdmin from './pages/SuperAdmin';
-import StudentScores from './pages/Student_scores';
+import StudentDetail from './pages/Student_details';
 
 function RequireApplicant({ children }) {
   const isLogin = localStorage.getItem("isLogin") === "true";
@@ -59,7 +59,7 @@ export default function App() {
         <Route path="/admission" element={<Admission />} />
         <Route path="/admission/:id" element={<AdmissionDetail />} />
         <Route path="/apply" element={<RequireApplicant><Apply /></RequireApplicant>} />
-        <Route path="/student/scores" element={<RequireApplicant><StudentScores /></RequireApplicant>} />
+        <Route path="/student/scores" element={<RequireApplicant><StudentDetail /></RequireApplicant>} />
         
         {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
