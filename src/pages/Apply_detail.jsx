@@ -7,6 +7,7 @@ import {
   FileText,
   CheckCircle,
   XCircle,
+  Award
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -32,19 +33,23 @@ export default function ApplicantDetailPage() {
   
   const [currentStatus, setCurrentStatus] = useState("pending")
   const [showResultDialog, setShowResultDialog] = useState(false)
+  const [scores, setScores] = useState([])
   const [confirmAction, setConfirmAction] = useState(null)
 
-  // 1. Fetch the application data on load
+  // 1. Fetch the application data AND scores on load
   useEffect(() => {
     const fetchApplicantData = async () => {
+      // 1A. Fetch Application
       const { data, error } = await supabase
         .from('APPLICATION')
         .select(`
           id,
+          user_id, 
           status,
           gpax,
           study_plan,
           high_school,
+          portfolio_url,
           USERS ( first_name, last_name, citizen_id ),
           ADMISSION_CRITERIA (
             tcas_round,
@@ -63,6 +68,23 @@ export default function ApplicantDetailPage() {
       if (!error && data) {
         setApplicant(data)
         setCurrentStatus(data.status || "pending")
+
+        // 1B. Fetch Scores right after getting the user_id
+        if (data.user_id) {
+          const { data: scoreData, error: scoreError } = await supabase
+            .from('USER_SCORES')
+            .select(`
+              score_value,
+              SUBJECTS ( subject_name )
+            `)
+            .eq('user_id', data.user_id)
+
+          if (!scoreError && scoreData) {
+            setScores(scoreData)
+          } else {
+            console.error("Error fetching scores:", scoreError)
+          }
+        }
       }
       setLoading(false)
     }
@@ -71,25 +93,24 @@ export default function ApplicantDetailPage() {
   }, [id])
 
   // 2. Handle updating the status in Supabase
-// 2. Handle updating the status in Supabase
-const handleUpdateStatus = async (newStatus) => {
-  setSaving(true)
-  
-  const { error } = await supabase
-    .from('APPLICATION')
-    .update({ status: newStatus })
-    .eq('id', id)
+  const handleUpdateStatus = async (newStatus) => {
+    setSaving(true)
+    
+    const { error } = await supabase
+      .from('APPLICATION')
+      .update({ status: newStatus })
+      .eq('id', id)
 
-  setSaving(false)
-  setConfirmAction(null) // <-- Close the confirm popup
+    setSaving(false)
+    setConfirmAction(null) // <-- Close the confirm popup
 
-  if (error) {
-    alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล: " + error.message)
-  } else {
-    setCurrentStatus(newStatus)
-    setShowResultDialog(true) // Show success popup
+    if (error) {
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล: " + error.message)
+    } else {
+      setCurrentStatus(newStatus)
+      setShowResultDialog(true) // Show success popup
+    }
   }
-}
 
   if (loading) return <div className="p-12 text-center text-muted-foreground">กำลังโหลดข้อมูลผู้สมัคร...</div>
   if (!applicant) return <div className="p-12 text-center text-red-500">ไม่พบข้อมูลผู้สมัครนี้</div>
@@ -167,12 +188,57 @@ const handleUpdateStatus = async (newStatus) => {
               <dt className="text-muted-foreground">รอบการรับสมัคร</dt>
               <dd className="font-medium text-foreground">รอบที่ {criteria.tcas_round || "-"}</dd>
             </div>
+            
+            {/* Portfolio Link */}
+            {applicant.portfolio_url && (
+              <div className="pt-2 mt-2 border-t border-border">
+                <dt className="text-muted-foreground mb-1">ผลงาน (Portfolio)</dt>
+                <dd>
+                  <a 
+                    href={supabase.storage.from('portfolios').getPublicUrl(applicant.portfolio_url).data.publicUrl}
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center rounded-md bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    เปิดดูไฟล์ PDF
+                  </a>
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
       </div>
 
-{/* Action Buttons */}
-<div className="mt-8 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-6 sm:flex-row sm:items-center sm:justify-end">
+      {/* TCAS Scores Section */}
+      <div className="mt-6 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h3 className="mb-4 font-semibold text-lg border-b pb-2 flex items-center gap-2">
+          <Award className="h-5 w-5 text-primary" />
+          คะแนนสอบ TCAS
+        </h3>
+        
+        {scores.length > 0 ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {scores.map((score, index) => (
+              <div key={index} className="flex justify-between items-center p-3 rounded-lg bg-muted/50 border border-border/50">
+                <span className="text-sm font-medium text-muted-foreground">
+                  {score.SUBJECTS?.subject_name}
+                </span>
+                <span className="text-base font-bold text-foreground">
+                  {Number(score.score_value).toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-sm text-muted-foreground bg-muted/30 rounded-lg border border-dashed border-border">
+            ผู้สมัครยังไม่ได้กรอกคะแนนสอบในระบบ
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="mt-8 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-6 sm:flex-row sm:items-center sm:justify-end">
         <p className="text-sm text-muted-foreground sm:mr-auto">กรุณาตรวจสอบข้อมูลก่อนบันทึกสถานะ</p>
         
         {/* Reject / Undo Button */}
@@ -249,7 +315,7 @@ const handleUpdateStatus = async (newStatus) => {
                     ? "bg-emerald-600 hover:bg-emerald-700" 
                     : confirmAction === "rejected"
                     ? "bg-red-600 hover:bg-red-700"
-                    : "bg-slate-600 hover:bg-slate-700" // Color for Undo confirm button
+                    : "bg-slate-600 hover:bg-slate-700"
                 }`}
               >
                 {saving ? "กำลังบันทึก..." : "ยืนยัน"}

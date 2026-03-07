@@ -84,47 +84,47 @@ export default function ApplicantListTable() {
     
     if (element) {
       try {
-        // 1. Fix the cut-off issue: Temporarily ensure the element isn't scrollable
+        // 1. Prepare element for capture (Fix width/scroll issues)
         const originalStyle = element.style.overflow
         element.style.overflow = 'visible'
 
         const dataUrl = await toPng(element, { 
           quality: 1,
-          pixelRatio: 3, // Higher ratio for better Thai text clarity
+          pixelRatio: 3, 
           backgroundColor: '#ffffff',
-          // 2. Fix SecurityError: Skip the Google Fonts CSS rules that cause the crash
-          filter: (node) => {
-            if (node.tagName === 'LINK' && node.href?.includes('fonts.googleapis.com')) {
-              return false;
-            }
-            return true;
-          }
+          filter: (node) => !(node.tagName === 'LINK' && node.href?.includes('fonts.googleapis.com'))
         })
         
-        // Restore original style
         element.style.overflow = originalStyle
 
-        // --- Inside your exportToPDF function ---
+        // 2. Setup PDF (A4 Landscape)
+        const pdf = new jsPDF('l', 'mm', 'a4') 
+        const pageWidth = pdf.internal.pageSize.getWidth()
+        const pageHeight = pdf.internal.pageSize.getHeight()
 
-const pdf = new jsPDF('l', 'mm', 'a4');
-const pageWidth = pdf.internal.pageSize.getWidth();
-const pageHeight = pdf.internal.pageSize.getHeight();
+        // 3. ADJUST SIZE HERE
+        const margin = 15; // 15mm margin on sides
+        const availableWidth = pageWidth - (margin * 2)
+        
+        const imgProps = pdf.getImageProperties(dataUrl)
+        const displayWidth = availableWidth; 
+        const displayHeight = (imgProps.height * displayWidth) / imgProps.width
 
-// 1. Set your desired margin (e.g., 20mm on each side)
-const margin = 20; 
-const targetWidth = pageWidth - (margin * 2);
+        // 4. Center horizontally and vertically (optional)
+        const xPos = margin;
+        const yPos = 20; // 20mm from top to leave room for a header/title
 
-// 2. Calculate height based on aspect ratio so it doesn't look stretched
-const imgProps = pdf.getImageProperties(dataUrl);
-const targetHeight = (imgProps.height * targetWidth) / imgProps.width;
+        // 5. Add to PDF
+        pdf.addImage(dataUrl, 'PNG', xPos, yPos, displayWidth, displayHeight)
+        
+        // Optional: Add a footer or page number
+        pdf.setFontSize(10)
+        pdf.text(`รายงานรายชื่อผู้สมัคร - วันที่ออกเอกสาร: ${new Date().toLocaleDateString('th-TH')}`, margin, pageHeight - 10)
 
-// 3. Center it: X = margin, Y = 20 (distance from top)
-pdf.addImage(dataUrl, 'PNG', margin, 20, targetWidth, targetHeight);
-pdf.save(`applicant_list_round_${roundFilter || 'all'}.pdf`);
+        pdf.save(`applicant_list_${new Date().getTime()}.pdf`)
       } catch (err) {
-        console.error("Failed to generate PDF", err)
-        // If it still fails, usually it's a specific image or font
-        alert("ไม่สามารถสร้าง PDF ได้เนื่องจากข้อจำกัดด้านความปลอดภัยของเบราว์เซอร์")
+        console.error("PDF Error:", err)
+        alert("เกิดข้อผิดพลาดในการปรับขนาดรูปภาพ PDF")
       }
     }
     setExporting(false)

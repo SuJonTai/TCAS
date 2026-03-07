@@ -14,17 +14,8 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import StaffSearch from './pages/Staff';
 import StaffResults from './pages/Staff_results';
-import AddStaff from './pages/AddStaff';
-import AddCriteria from './pages/AddCriteria';
 import SuperAdmin from './pages/SuperAdmin';
-
-function RequireAuth({ children }) {
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
-  if (!isLogin) {
-    return <Navigate to="/login" />
-  }
-  return children;
-}
+import StudentScores from './pages/Student_scores';
 
 function RequireApplicant({ children }) {
   const isLogin = localStorage.getItem("isLogin") === "true";
@@ -68,6 +59,7 @@ export default function App() {
         <Route path="/admission" element={<Admission />} />
         <Route path="/admission/:id" element={<AdmissionDetail />} />
         <Route path="/apply" element={<RequireApplicant><Apply /></RequireApplicant>} />
+        <Route path="/student/scores" element={<RequireApplicant><StudentScores /></RequireApplicant>} />
         
         {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
@@ -77,12 +69,6 @@ export default function App() {
         <Route path="/staff" element={<RequireStaff><StaffSearch /></RequireStaff>} />
         <Route path="/staff/results" element={<RequireStaff><StaffResults /></RequireStaff>} />
         <Route path="/staff/applicant/:id" element={<RequireStaff><ApplyDetail /></RequireStaff>} />
-
-        {/* Staff Dashboard Routes */}
-        <Route path="/staff" element={<RequireStaff><StaffSearch /></RequireStaff>} />
-        <Route path="/staff/results" element={<RequireStaff><StaffResults /></RequireStaff>} />
-        <Route path="/staff/applicant/:id" element={<RequireStaff><ApplyDetail /></RequireStaff>} />
-        
         <Route path="/staff/super-admin" element={<RequireStaff><SuperAdmin /></RequireStaff>} />
         
       </Routes>
