@@ -14,8 +14,11 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import StaffSearch from './pages/Staff';
 import StaffResults from './pages/Staff_results';
-import SuperAdmin from './pages/SuperAdmin';
 import StudentDetail from './pages/Student_details';
+import SuperAcc from './pages/SuperAdminAcc';
+import SuperCriteria from './pages/SuperAdminCriteria';
+import SuperAcademic from './pages/SuperAdminAcademic';
+
 
 function RequireApplicant({ children }) {
   const isLogin = localStorage.getItem("isLogin") === "true";
@@ -69,7 +72,9 @@ export default function App() {
         <Route path="/staff" element={<RequireStaff><StaffSearch /></RequireStaff>} />
         <Route path="/staff/results" element={<RequireStaff><StaffResults /></RequireStaff>} />
         <Route path="/staff/applicant/:id" element={<RequireStaff><ApplyDetail /></RequireStaff>} />
-        <Route path="/staff/super-admin" element={<RequireStaff><SuperAdmin /></RequireStaff>} />
+        <Route path="/staff/super-admin/accounts" element={<RequireStaff><SuperAcc /></RequireStaff>} />
+        <Route path="/staff/super-admin/criteria" element={<RequireStaff><SuperCriteria /></RequireStaff>} />
+        <Route path="/staff/super-admin/academic" element={<RequireStaff><SuperAcademic /></RequireStaff>} />
         
       </Routes>
     </BrowserRouter>

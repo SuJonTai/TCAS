@@ -10,7 +10,9 @@ const navLinks = [
   { href: "/apply", label: "สมัครเรียน" },
   { href: "/staff", label: "สำหรับเจ้าหน้าที่" },
   { href: "/login", label: "เข้าสู่ระบบ" },
-  { href: "/staff/super-admin", label: "Super Admin" },
+  { href: "/staff/super-admin/accounts", label: "จัดการบัญชี" },
+  { href: "/staff/super-admin/criteria", label: "จัดการเกณฑ์" },
+  { href: "/staff/super-admin/academic", label: "จัดการข้อมูลการศึกษา" }
 ]
 
 export default function Navbar() {
