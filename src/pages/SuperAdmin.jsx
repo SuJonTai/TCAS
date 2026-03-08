@@ -25,12 +25,13 @@ export default function SuperAdmin() {
     tcas_round: "1", 
     max_seats: "", 
     min_gpax: "", 
-    // เปลี่ยนค่าเริ่มต้นเป็น Array ว่าง (หรือจะใส่ค่าเริ่มต้นเช่น ["studying"] ก็ได้)
     edu_status_req: [], 
     project_id: "", 
     faculty_id: "", 
     dept_id: "", 
     program_id: "",
+    start_date: "", // เพิ่มบรรทัดนี้
+    end_date: "",   // เพิ่มบรรทัดนี้
   });
 
   // --- States for Academic Structure Forms ---
@@ -107,7 +108,7 @@ export default function SuperAdmin() {
 const handleCriteriaSubmit = async (e) => {
     e.preventDefault();
 
-    // --- Validation: เช็คว่าใน Array มีตัวเลือกทั้ง 2 กลุ่มหรือไม่ ---
+    // --- Validation: เช็คสถานะและวุฒิ ---
     const hasStatus = criteriaForm.edu_status_req.some(req => ["studying", "graduated"].includes(req));
     const hasType = criteriaForm.edu_status_req.some(req => ["high-school", "vocational", "high-vocational"].includes(req));
 
@@ -120,6 +121,12 @@ const handleCriteriaSubmit = async (e) => {
       return;
     }
 
+    // --- เพิ่ม Validation: เช็ควันที่ ---
+    if (new Date(criteriaForm.start_date) > new Date(criteriaForm.end_date)) {
+      alert("วันที่สิ้นสุดการรับสมัคร ต้องไม่ก่อนวันที่เริ่มต้น");
+      return;
+    }
+
     setCriteriaLoading(true);
     
     const { error } = await supabase.from('ADMISSION_CRITERIA').insert([{
@@ -127,10 +134,11 @@ const handleCriteriaSubmit = async (e) => {
       tcas_round: parseInt(criteriaForm.tcas_round),
       max_seats: parseInt(criteriaForm.max_seats),
       min_gpax: parseFloat(criteriaForm.min_gpax),
-      // ส่ง Array ก้อนเดียวที่รวมทั้งสถานะและวุฒิไปเลย
       edu_status_req: criteriaForm.edu_status_req, 
       program_id: parseInt(criteriaForm.program_id),
-      project_id: parseInt(criteriaForm.project_id)
+      project_id: parseInt(criteriaForm.project_id),
+      start_date: criteriaForm.start_date, // เพิ่มบรรทัดนี้
+      end_date: criteriaForm.end_date      // เพิ่มบรรทัดนี้
     }]);
 
     setCriteriaLoading(false);
@@ -143,7 +151,9 @@ const handleCriteriaSubmit = async (e) => {
         min_gpax: "", 
         dept_id: "", 
         program_id: "",
-        edu_status_req: [] // Reset กลับเป็น Array ว่างเหมือนเดิม
+        edu_status_req: [],
+        start_date: "", // เพิ่มบรรทัดนี้
+        end_date: ""    // เพิ่มบรรทัดนี้
       });
       setTimeout(() => setCriteriaSuccess(false), 3000);
     }
@@ -333,6 +343,16 @@ const handleCriteriaSubmit = async (e) => {
                 <div>
                   <label className="mb-1 block text-sm font-medium">GPAX ขั้นต่ำ</label>
                   <input type="number" step="0.01" min="0" max="4" required value={criteriaForm.min_gpax} onChange={e => setCriteriaForm({...criteriaForm, min_gpax: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">วันที่เริ่มต้นรับสมัคร <span className="text-red-500">*</span></label>
+                  <input type="date" required value={criteriaForm.start_date} onChange={e => setCriteriaForm({...criteriaForm, start_date: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">วันที่สิ้นสุดรับสมัคร <span className="text-red-500">*</span></label>
+                  <input type="date" required value={criteriaForm.end_date} onChange={e => setCriteriaForm({...criteriaForm, end_date: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
                 </div>
               </div>
 

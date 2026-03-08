@@ -3,32 +3,69 @@ import { Link } from "react-router-dom"
 import { Search, ChevronDown, ChevronRight, Building2, Layers, BookOpen, ArrowRight } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
+const formatDate = (dateString) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("th-TH", { 
+    day: "numeric", 
+    month: "short", 
+    year: "2-digit" 
+  });
+};
+
 function MajorLink({ major }) {
+  // เรียงลำดับรอบจากน้อยไปมาก (รอบ 1 -> 4)
+  const sortedCriteria = major.ADMISSION_CRITERIA?.sort((a, b) => a.tcas_round - b.tcas_round) || [];
+
   return (
     <Link
       to={`/admission/${major.id}`}
-      className="group flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
+      className="group flex flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
     >
-      <div className="flex items-center gap-2">
-        <BookOpen className="h-4 w-4 text-primary" />
-        <span className="text-sm font-medium text-foreground">{major.prog_name}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium text-foreground">{major.prog_name}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center rounded-full border border-transparent bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/80">
+            {sortedCriteria.length} รอบ
+          </span>
+          <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center rounded-full border border-transparent bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-secondary/80">
-          {major.ADMISSION_CRITERIA?.length || 0} รอบ
-        </span>
-        <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
-      </div>
+
+      {/* เพิ่มส่วนแสดงวันที่ของแต่ละรอบตรงนี้ */}
+      {sortedCriteria.length > 0 && (
+        <div className="flex flex-col gap-1 pl-6 border-t border-border/50 pt-2">
+          {sortedCriteria.map((criteria) => (
+            <div key={criteria.id} className="text-xs text-muted-foreground flex items-center gap-2">
+              <span className="font-medium text-primary/80">รอบ {criteria.tcas_round} :</span> 
+              <span>
+                {criteria.start_date && criteria.end_date 
+                  ? `${formatDate(criteria.start_date)} - ${formatDate(criteria.end_date)}`
+                  : "ยังไม่ประกาศวันที่"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </Link>
   )
 }
 
 function FacultyCard({ faculty }) {
   const [isOpen, setIsOpen] = useState(false)
+  const [imgError, setImgError] = useState(false) // เพิ่ม state เช็ก error ของรูปภาพ
   
   const totalRounds = faculty.DEPARTMENTS.reduce((sum, dept) => {
     return sum + dept.PROGRAMS.reduce((pSum, prog) => pSum + (prog.ADMISSION_CRITERIA?.length || 0), 0)
   }, 0)
+
+  // สร้าง URL รูปภาพจาก Bucket โดยอิงตาม ID ของคณะ (สมมติว่าเป็นไฟล์ .png)
+  const { data: { publicUrl } } = supabase.storage
+    .from('faculty-logos')
+    .getPublicUrl(`${faculty.id}.png`)
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
@@ -37,9 +74,22 @@ function FacultyCard({ faculty }) {
         className="flex w-full items-center justify-between p-6 text-left transition-colors hover:bg-muted/50"
       >
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-            <Building2 className="h-6 w-6 text-primary" />
+          
+          {/* อัปเดตส่วนแสดงผลโลโก้ตรงนี้ครับ */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10">
+            {!imgError ? (
+              <img 
+                src={publicUrl} 
+                alt={`${faculty.faculty_name} logo`} 
+                className="h-full w-full object-contain p-1" // ใช้ object-contain รูปจะได้ไม่โดนตัด
+                onError={() => setImgError(true)} // ถ้าหาไฟล์ไม่เจอ จะเซ็ต imgError เป็น true
+              />
+            ) : (
+              <Building2 className="h-6 w-6 text-primary" /> // Fallback กลับมาเป็นไอคอน
+            )}
           </div>
+          {/* จบส่วนอัปเดตโลโก้ */}
+
           <div>
             <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-foreground">
               {faculty.faculty_name}
@@ -82,7 +132,7 @@ export default function AdmissionPage() {
   const [facultiesDB, setFacultiesDB] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+useEffect(() => {
     const fetchFaculties = async () => {
       const { data, error } = await supabase
         .from('FACULTIES')
@@ -95,7 +145,7 @@ export default function AdmissionPage() {
             PROGRAMS (
               id, 
               prog_name,
-              ADMISSION_CRITERIA ( id )
+              ADMISSION_CRITERIA ( id, tcas_round, start_date, end_date ) 
             )
           )
         `)

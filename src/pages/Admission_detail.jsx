@@ -2,9 +2,20 @@ import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { 
   ArrowLeft, BookOpen, Users, ClipboardCheck, 
-  Building2, Layers, GraduationCap, School // <-- เพิ่มไอคอนใหม่
+  Building2, Layers, GraduationCap, School, Calendar 
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+
+// เพิ่มฟังก์ชันแปลงวันที่แบบไทย
+const formatDate = (dateString) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("th-TH", { 
+    day: "numeric", 
+    month: "short", 
+    year: "2-digit" 
+  });
+};
 
 function RoundCard({ round }) {
   // --- จัดการข้อมูล Array ของสถานะและวุฒิ (แบบปลอดภัย) ---
@@ -44,7 +55,7 @@ function RoundCard({ round }) {
 
   return (
     <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-      <div className="flex flex-col space-y-1.5 p-6 pb-3">
+      <div className="flex flex-col space-y-2 p-6 pb-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
             รอบที่ {round.tcas_round}
@@ -53,7 +64,18 @@ function RoundCard({ round }) {
             {round.ADMISSION_PROJECTS?.project_name || "โครงการรับตรง"}
           </span>
         </div>
+        
+        {/* เพิ่มการแสดงผลวันที่ตรงนี้ */}
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+          <Calendar className="h-4 w-4 text-primary/70" />
+          <span>
+            {round.start_date && round.end_date 
+              ? `${formatDate(round.start_date)} - ${formatDate(round.end_date)}`
+              : "ยังไม่ประกาศวันที่รับสมัคร"}
+          </span>
+        </div>
       </div>
+
       <div className="p-6 pt-3">
         {/* ปรับ Grid เป็น 2 คอลัมน์ (แสดง 4 กล่องเรียงกันสวยๆ) */}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -119,13 +141,21 @@ export default function AdmissionDetailPage() {
             min_gpax,
             academic_year,
             edu_status_req,
+            start_date,
+            end_date,
             ADMISSION_PROJECTS ( project_name )
           )
         `)
         .eq('id', id)
         .single()
       
-      if (!error && progData) setData(progData)
+      if (!error && progData) {
+        // จัดเรียงรอบให้แสดงจากน้อยไปมาก (1, 2, 3...)
+        if (progData.ADMISSION_CRITERIA) {
+          progData.ADMISSION_CRITERIA.sort((a, b) => a.tcas_round - b.tcas_round);
+        }
+        setData(progData);
+      }
       setLoading(false)
     }
     fetchDetail()
