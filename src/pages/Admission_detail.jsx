@@ -1,9 +1,47 @@
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, BookOpen, Users, ClipboardCheck, Building2, Layers } from "lucide-react"
+import { 
+  ArrowLeft, BookOpen, Users, ClipboardCheck, 
+  Building2, Layers, GraduationCap, School // <-- เพิ่มไอคอนใหม่
+} from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
 function RoundCard({ round }) {
+  // --- จัดการข้อมูล Array ของสถานะและวุฒิ (แบบปลอดภัย) ---
+  let reqs = []
+  const rawReqs = round.edu_status_req
+
+  if (Array.isArray(rawReqs)) {
+    reqs = rawReqs
+  } else if (typeof rawReqs === 'string') {
+    try { reqs = JSON.parse(rawReqs) } 
+    catch(e) { reqs = rawReqs.split(',').map(item => item.trim()) }
+  }
+
+  // แยกกลุ่มข้อมูลแบบเดียวกับที่ใช้ตรวจสิทธิ
+  const requiredStatuses = reqs.filter(r => ["studying", "graduated"].includes(r))
+  const requiredTypes = reqs.filter(r => ["high-school", "vocational", "high-vocational"].includes(r))
+
+  // แปลงค่าภาษาอังกฤษเป็นภาษาไทย
+  const statusMap = {
+    "studying": "กำลังศึกษา",
+    "graduated": "สำเร็จการศึกษา"
+  }
+  const typeMap = {
+    "high-school": "ม.ปลาย",
+    "vocational": "ปวช.",
+    "high-vocational": "ปวส."
+  }
+
+  // สร้างข้อความเพื่อนำไปแสดงผล
+  const displayStatus = requiredStatuses.length > 0 
+    ? requiredStatuses.map(s => statusMap[s]).join(" หรือ ") 
+    : "ไม่กำหนด"
+
+  const displayType = requiredTypes.length > 0 
+    ? requiredTypes.map(t => typeMap[t]).join(", ") 
+    : "ไม่กำหนด"
+
   return (
     <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="flex flex-col space-y-1.5 p-6 pb-3">
@@ -17,7 +55,9 @@ function RoundCard({ round }) {
         </div>
       </div>
       <div className="p-6 pt-3">
+        {/* ปรับ Grid เป็น 2 คอลัมน์ (แสดง 4 กล่องเรียงกันสวยๆ) */}
         <div className="grid gap-4 sm:grid-cols-2">
+          
           <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <Users className="h-5 w-5 text-muted-foreground" />
             <div>
@@ -25,6 +65,7 @@ function RoundCard({ round }) {
               <p className="font-medium text-foreground">{round.max_seats} ที่นั่ง</p>
             </div>
           </div>
+          
           <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
             <div>
@@ -32,6 +73,23 @@ function RoundCard({ round }) {
               <p className="font-medium text-foreground">{round.min_gpax ? round.min_gpax.toFixed(2) : "ไม่กำหนด"}</p>
             </div>
           </div>
+
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <GraduationCap className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <p className="text-xs text-muted-foreground">สถานะผู้สมัคร</p>
+              <p className="font-medium text-foreground text-sm leading-tight">{displayStatus}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <School className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <p className="text-xs text-muted-foreground">วุฒิที่รับสมัคร</p>
+              <p className="font-medium text-foreground text-sm leading-tight">{displayType}</p>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -60,6 +118,7 @@ export default function AdmissionDetailPage() {
             max_seats,
             min_gpax,
             academic_year,
+            edu_status_req,
             ADMISSION_PROJECTS ( project_name )
           )
         `)

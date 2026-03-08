@@ -17,7 +17,7 @@ export default function SuperAdmin() {
     citizen_id: "", password: "", first_name: "", last_name: "",
   });
 
-  // --- States for Criteria Form ---
+// --- States for Criteria Form ---
   const [criteriaLoading, setCriteriaLoading] = useState(false);
   const [criteriaSuccess, setCriteriaSuccess] = useState(false);
   const [criteriaForm, setCriteriaForm] = useState({
@@ -25,9 +25,8 @@ export default function SuperAdmin() {
     tcas_round: "1", 
     max_seats: "", 
     min_gpax: "", 
-    edu_status_req: "all",
-    // NEW: Education type requirement (high-school, vocational, high-vocational, all)
-    edu_type_req: "all",
+    // เปลี่ยนค่าเริ่มต้นเป็น Array ว่าง (หรือจะใส่ค่าเริ่มต้นเช่น ["studying"] ก็ได้)
+    edu_status_req: [], 
     project_id: "", 
     faculty_id: "", 
     dept_id: "", 
@@ -105,8 +104,22 @@ export default function SuperAdmin() {
     }
   };
 
-  const handleCriteriaSubmit = async (e) => {
+const handleCriteriaSubmit = async (e) => {
     e.preventDefault();
+
+    // --- Validation: เช็คว่าใน Array มีตัวเลือกทั้ง 2 กลุ่มหรือไม่ ---
+    const hasStatus = criteriaForm.edu_status_req.some(req => ["studying", "graduated"].includes(req));
+    const hasType = criteriaForm.edu_status_req.some(req => ["high-school", "vocational", "high-vocational"].includes(req));
+
+    if (!hasStatus) {
+      alert("กรุณาเลือกสถานะการศึกษา (กำลังศึกษา/สำเร็จการศึกษา) อย่างน้อย 1 รายการ");
+      return;
+    }
+    if (!hasType) {
+      alert("กรุณาเลือกวุฒิการศึกษา (ม.6/ปวช./ปวส.) อย่างน้อย 1 รายการ");
+      return;
+    }
+
     setCriteriaLoading(true);
     
     const { error } = await supabase.from('ADMISSION_CRITERIA').insert([{
@@ -114,8 +127,8 @@ export default function SuperAdmin() {
       tcas_round: parseInt(criteriaForm.tcas_round),
       max_seats: parseInt(criteriaForm.max_seats),
       min_gpax: parseFloat(criteriaForm.min_gpax),
-      edu_status_req: criteriaForm.edu_status_req,
-      edu_type_req: criteriaForm.edu_type_req, // UPDATED: Sending education type
+      // ส่ง Array ก้อนเดียวที่รวมทั้งสถานะและวุฒิไปเลย
+      edu_status_req: criteriaForm.edu_status_req, 
       program_id: parseInt(criteriaForm.program_id),
       project_id: parseInt(criteriaForm.project_id)
     }]);
@@ -130,8 +143,7 @@ export default function SuperAdmin() {
         min_gpax: "", 
         dept_id: "", 
         program_id: "",
-        edu_status_req: "all",
-        edu_type_req: "all" // Resetting to default
+        edu_status_req: [] // Reset กลับเป็น Array ว่างเหมือนเดิม
       });
       setTimeout(() => setCriteriaSuccess(false), 3000);
     }
@@ -324,25 +336,79 @@ export default function SuperAdmin() {
                 </div>
               </div>
 
-              {/* UPDATED: Education Requirement Types */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border pt-4">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">สถานะการศึกษา</label>
-                  <select required value={criteriaForm.edu_status_req} onChange={e => setCriteriaForm({...criteriaForm, edu_status_req: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
-                    <option value="all">รับทั้งหมด (กำลังศึกษา/จบแล้ว)</option>
-                    <option value="studying">รับเฉพาะผู้กำลังศึกษา</option>
-                    <option value="graduated">รับเฉพาะผู้สำเร็จการศึกษา</option>
-                  </select>
+{/* --- ส่วนที่ 1: กลุ่มสถานะการศึกษา --- */}
+              <div className="border-t border-border pt-4">
+                <label className="mb-2 block text-sm font-medium">สถานะการศึกษา <span className="text-red-500">*</span></label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-input bg-background p-4">
+                  {[
+                    { id: "studying", label: "กำลังศึกษาอยู่" },
+                    { id: "graduated", label: "สำเร็จการศึกษาแล้ว" },
+                  ].map((option) => (
+                    <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
+                      <input
+                        type="checkbox"
+                        // เช็คและเก็บค่าที่ edu_status_req เสมอ
+                        checked={criteriaForm.edu_status_req.includes(option.id)}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setCriteriaForm(prev => {
+                            const currentReqs = prev.edu_status_req;
+                            return { 
+                              ...prev, 
+                              edu_status_req: isChecked 
+                                ? [...currentReqs, option.id] 
+                                : currentReqs.filter(item => item !== option.id) 
+                            };
+                          });
+                        }}
+                        className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">วุฒิการศึกษาที่รองรับ</label>
-                  <select required value={criteriaForm.edu_type_req} onChange={e => setCriteriaForm({...criteriaForm, edu_type_req: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
-                    <option value="all">รับทุกวุฒิการศึกษา</option>
-                    <option value="high-school">มัธยมศึกษาตอนปลาย (ม.6)</option>
-                    <option value="vocational">ประกาศนียบัตรวิชาชีพ (ปวช.)</option>
-                    <option value="high-vocational">ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)</option>
-                  </select>
+                {/* ดักแจ้งเตือนว่าเลือกกลุ่มสถานะหรือยัง */}
+                {!criteriaForm.edu_status_req.some(req => ["studying", "graduated"].includes(req)) && (
+                  <p className="mt-1 text-xs text-red-500">กรุณาเลือกสถานะอย่างน้อย 1 รายการ</p>
+                )}
+              </div>
+
+              {/* --- ส่วนที่ 2: กลุ่มวุฒิการศึกษา --- */}
+              <div className="pt-2">
+                <label className="mb-2 block text-sm font-medium">วุฒิการศึกษาที่รองรับ <span className="text-red-500">*</span></label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-input bg-background p-4">
+                  {[
+                    { id: "high-school", label: "มัธยมศึกษาตอนปลาย (ม.6)" },
+                    { id: "vocational", label: "ประกาศนียบัตรวิชาชีพ (ปวช.)" },
+                    { id: "high-vocational", label: "ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)" },
+                  ].map((option) => (
+                    <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
+                      <input
+                        type="checkbox"
+                        // เช็คและเก็บค่าที่ edu_status_req ตัวเดิมเหมือนกัน
+                        checked={criteriaForm.edu_status_req.includes(option.id)}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setCriteriaForm(prev => {
+                            const currentReqs = prev.edu_status_req;
+                            return { 
+                              ...prev, 
+                              edu_status_req: isChecked 
+                                ? [...currentReqs, option.id] 
+                                : currentReqs.filter(item => item !== option.id) 
+                            };
+                          });
+                        }}
+                        className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
                 </div>
+                {/* ดักแจ้งเตือนว่าเลือกกลุ่มวุฒิหรือยัง */}
+                {!criteriaForm.edu_status_req.some(req => ["high-school", "vocational", "high-vocational"].includes(req)) && (
+                  <p className="mt-1 text-xs text-red-500">กรุณาเลือกวุฒิการศึกษาอย่างน้อย 1 รายการ</p>
+                )}
               </div>
 
               <div className="border-t border-border pt-4">

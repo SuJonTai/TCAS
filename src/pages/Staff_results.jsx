@@ -31,11 +31,11 @@ export default function ApplicantListTable() {
   const facultyFilter = searchParams.get("faculty_id")
   const programFilter = searchParams.get("program_id")
 
-  useEffect(() => {
+useEffect(() => {
     const fetchApplicants = async () => {
       setLoading(true)
 
-      // UPDATED: Added edu_status_req, min_level, max_level, and user's current level/status
+      // ดึงแค่ edu_status มาตามปกติ
       let query = supabase.from('APPLICATION').select(`
         id,
         status,
@@ -64,32 +64,69 @@ export default function ApplicantListTable() {
 
       const { data, error } = await query
 
-      if (!error && data) {
+if (!error && data) {
         let formattedData = data.map(app => {
           const criteria = app.ADMISSION_CRITERIA || {}
           const user = app.USERS || {}
           
-          // Qualification Checks
           const passGpax = (app.gpax || 0) >= (criteria.min_gpax || 0)
           
-          // Check education status (Assuming 'all' means both studying and graduated are accepted)
-          // Adjust this logic depending on how you save your exact enum values!
-          const passStatus = !criteria.edu_status_req || 
-                             criteria.edu_status_req === 'all' || 
-                             user.edu_status === criteria.edu_status_req
+          // --- จัดการให้ reqs เป็น Array เสมอ ป้องกัน Error ---
+          let rawReqs = criteria.edu_status_req;
+          let reqs = [];
 
-          // Check level boundaries
+          if (Array.isArray(rawReqs)) {
+            reqs = rawReqs; // ถ้าเป็น Array อยู่แล้ว ใช้ได้เลย
+          } else if (typeof rawReqs === 'string') {
+            try {
+              // กรณีที่ฐานข้อมูลเก็บเป็น String รูปแบบ JSON (เช่น '["studying", "high-school"]')
+              reqs = JSON.parse(rawReqs);
+            } catch (e) {
+              // กรณีที่เป็น String ธรรมดา หรือมีคอมม่าคั่น (เช่น 'studying,high-school')
+              reqs = rawReqs.split(',').map(item => item.trim());
+            }
+          }
+          
+          // เผื่อกรณีที่แปลงแล้วยังไม่ใช่ Array ให้จับใส่ Array ให้จบๆ ไป
+          if (!Array.isArray(reqs)) {
+            reqs = rawReqs ? [rawReqs] : [];
+          }
+
+          // 1. คัดแยก Array ของเกณฑ์รับสมัคร ออกเป็น 2 กลุ่ม (สถานะ และ วุฒิ)
+          const requiredStatuses = reqs.filter(r => ["studying", "graduated"].includes(r))
+          const requiredTypes = reqs.filter(r => ["high-school", "vocational", "high-vocational"].includes(r))
+
+          // 2. จัดการข้อมูลของ User ให้อยู่ในรูป Array เสมอ (เหมือนที่ทำไว้)
+          let rawUserEdu = user.edu_status;
+          let userEduData = [];
+          
+          if (Array.isArray(rawUserEdu)) {
+            userEduData = rawUserEdu;
+          } else if (typeof rawUserEdu === 'string') {
+            try { userEduData = JSON.parse(rawUserEdu); } 
+            catch (e) { userEduData = rawUserEdu.split(',').map(item => item.trim()); }
+          }
+          if (!Array.isArray(userEduData)) {
+            userEduData = rawUserEdu ? [rawUserEdu] : [];
+          }
+
+          // 3. ตรวจสอบแยกกลุ่ม
+          const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.some(status => userEduData.includes(status))
+          const passEduType = requiredTypes.length === 0 || requiredTypes.some(type => userEduData.includes(type))
+
           const userLevel = user.current_level || 0
           const minLevel = criteria.min_level || 0
           const maxLevel = criteria.max_level || 99
           const passLevel = userLevel >= minLevel && userLevel <= maxLevel
 
-          const passAll = passGpax && passStatus && passLevel
+          // ต้องผ่านทุกเกณฑ์ถึงจะถือว่าผ่านการประเมิน
+          const passAll = passGpax && passEduStatus && passEduType && passLevel
 
-          // Create an array of fail reasons for the UI
+          // สร้างแจ้งเตือนกรณีที่ตกเกณฑ์แบบแยกข้อชัดเจน
           const failReasons = []
           if (!passGpax) failReasons.push("GPAX ไม่ถึงเกณฑ์")
-          if (!passStatus) failReasons.push("สถานะการศึกษาไม่ตรง")
+          if (!passEduStatus) failReasons.push("สถานะการศึกษาไม่ตรงเกณฑ์")
+          if (!passEduType) failReasons.push("วุฒิการศึกษาไม่ตรงเกณฑ์")
           if (!passLevel) failReasons.push("ระดับชั้นไม่ตรงเกณฑ์")
 
           return {
@@ -106,7 +143,6 @@ export default function ApplicantListTable() {
           }
         })
 
-        // Filter based on the comprehensive qualification state
         if (qualFilter === "pass") {
           formattedData = formattedData.filter(a => a.passAll)
         } else if (qualFilter === "fail") {

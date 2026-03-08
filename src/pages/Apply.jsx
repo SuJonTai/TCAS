@@ -93,9 +93,9 @@ export default function Apply() {
         (c) => c.tcas_round.toString() === selectedRound && c.program_id.toString() === selectedProgram
       );
 
-      if (userProfile.gpax_5_term < matchingCriteria.min_gpax) {
+      /*if (userProfile.gpax_5_term < matchingCriteria.min_gpax) {
         throw new Error(`เกรดของคุณ (${userProfile.gpax_5_term}) ไม่ถึงเกณฑ์ขั้นต่ำของสาขานี้ (${matchingCriteria.min_gpax})`);
-      }
+      }*/
 
       // Upload both files
       const [portfolioUrl, transcriptUrl] = await Promise.all([

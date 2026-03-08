@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import {
   CalendarDays,
@@ -9,18 +9,11 @@ import {
   Users,
   FileCheck,
   GraduationCap,
+  Loader2 // เพิ่ม icon สำหรับ loading
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
-// --- Mock Data ---
-const topFaculties = [
-  { name: "วิศวกรรมศาสตร์", applicants: 4520 },
-  { name: "วิทยาศาสตร์ประยุกต์", applicants: 1840 },
-  { name: "ครุศาสตร์อุตสาหกรรม", applicants: 950 },
-  { name: "เทคโนโลยีสารสนเทศ", applicants: 420 },
-  { name: "สถาปัตยกรรมและการออกแบบ", applicants: 290 },
-]
+import { supabase } from "@/lib/supabase" // อย่าลืม import supabase
 
 function AnnouncementBanner() {
   return (
@@ -88,6 +81,7 @@ function HeroSection() {
   )
 }
 
+// StatsCards (ยังคงใช้ข้อมูล Mock แต่คุณสามารถปรับให้ดึงจาก Database ได้เช่นกัน)
 function StatsCards() {
   const stats = [
     { label: "ผู้สมัครทั้งหมด", value: "8,020", icon: Users, change: "+12% จากปีที่แล้ว" },
@@ -121,7 +115,54 @@ function StatsCards() {
 }
 
 function TopFacultiesChart() {
-  const max = Math.max(...topFaculties.map((f) => f.applicants))
+  const [topFaculties, setTopFaculties] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchTopFaculties = async () => {
+      try {
+        // ดึงข้อมูลใบสมัครทั้งหมดและ Join ไปจนถึงชื่อคณะ
+        const { data, error } = await supabase
+          .from('APPLICATION')
+          .select(`
+            ADMISSION_CRITERIA (
+              PROGRAMS (
+                DEPARTMENTS (
+                  FACULTIES ( faculty_name )
+                )
+              )
+            )
+          `)
+
+        if (error) throw error
+
+        // จัดกลุ่มและนับจำนวนใบสมัครแยกตามคณะ
+        const counts = {}
+        data?.forEach(app => {
+          const facultyName = app.ADMISSION_CRITERIA?.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name
+          if (facultyName) {
+            counts[facultyName] = (counts[facultyName] || 0) + 1
+          }
+        })
+
+        // แปลงเป็น Array, เรียงลำดับจากมากไปน้อย และตัดเอาแค่ 5 อันดับแรก
+        const sortedData = Object.entries(counts)
+          .map(([name, applicants]) => ({ name, applicants }))
+          .sort((a, b) => b.applicants - a.applicants)
+          .slice(0, 5)
+
+        setTopFaculties(sortedData)
+      } catch (error) {
+        console.error("Error fetching top faculties:", error.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchTopFaculties()
+  }, [])
+
+  const max = topFaculties.length > 0 ? Math.max(...topFaculties.map((f) => f.applicants)) : 0
 
   return (
     <section className="mx-auto max-w-7xl px-4 pb-16 lg:px-8">
@@ -134,38 +175,49 @@ function TopFacultiesChart() {
             </CardTitle>
           </div>
           <p className="text-sm text-muted-foreground">
-            จำนวนผู้สมัครในรอบปีการศึกษา 2026
+            อ้างอิงจากข้อมูลการรับสมัครในระบบปัจจุบัน
           </p>
         </CardHeader>
         <CardContent className="pt-4">
-          <div className="flex flex-col gap-4">
-            {topFaculties.map((faculty, i) => (
-              <div key={faculty.name} className="flex items-center gap-4">
-                <span className="w-6 text-right text-sm font-semibold text-muted-foreground">
-                  {i + 1}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {faculty.name}
-                    </span>
-                    <span className="shrink-0 text-sm font-semibold text-foreground">
-                      {faculty.applicants.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all duration-700"
-                      style={{
-                        width: `${(faculty.applicants / max) * 100}%`,
-                        opacity: 1 - i * 0.15,
-                      }}
-                    />
+          {loading ? (
+            <div className="flex h-32 items-center justify-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              <span>กำลังโหลดข้อมูล...</span>
+            </div>
+          ) : topFaculties.length === 0 ? (
+            <div className="flex h-32 items-center justify-center text-muted-foreground text-sm border-2 border-dashed rounded-lg">
+              ยังไม่มีข้อมูลการสมัคร
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {topFaculties.map((faculty, i) => (
+                <div key={faculty.name} className="flex items-center gap-4">
+                  <span className="w-6 text-right text-sm font-semibold text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {faculty.name}
+                      </span>
+                      <span className="shrink-0 text-sm font-semibold text-foreground">
+                        {faculty.applicants.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-all duration-700"
+                        style={{
+                          width: max > 0 ? `${(faculty.applicants / max) * 100}%` : '0%',
+                          opacity: 1 - i * 0.15,
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </section>

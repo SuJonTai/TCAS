@@ -9,7 +9,7 @@ import {
   XCircle,
   Award,
   FileCheck,
-  CheckCircle2 // Added for success icon
+  CheckCircle2
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -44,6 +44,7 @@ function formatEducationType(type) {
       return type || "-"
   }
 }
+
 export default function ApplicantDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -79,6 +80,7 @@ export default function ApplicantDetailPage() {
           ),
           ADMISSION_CRITERIA (
             tcas_round,
+            ADMISSION_PROJECTS ( project_name ), 
             PROGRAMS (
               prog_name,
               DEPARTMENTS (
@@ -127,7 +129,7 @@ export default function ApplicantDetailPage() {
       alert("เกิดข้อผิดพลาด: " + error.message)
     } else {
       setCurrentStatus(newStatus)
-      setShowResultDialog(true) // Open the success popup
+      setShowResultDialog(true)
     }
   }
 
@@ -136,11 +138,12 @@ export default function ApplicantDetailPage() {
 
   const user = applicant.USERS || {}
   const studyPlanName = user.STUDY_PLANS?.plan_name || "-"
-  const studyPlanType = user.STUDY_PLANS?.plan_group || "-" // ดึงค่า plan_group
+  const studyPlanType = user.STUDY_PLANS?.plan_group || "-"
   const criteria = applicant.ADMISSION_CRITERIA || {}
   const program = criteria.PROGRAMS || {}
   const dept = program.DEPARTMENTS || {}
   const faculty = dept.FACULTIES || {}
+  const project = criteria.ADMISSION_PROJECTS || {} // <-- เตรียมตัวแปร project
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8 font-poppins min-h-screen bg-slate-50/30">
@@ -178,18 +181,16 @@ export default function ApplicantDetailPage() {
               <dt className="text-slate-500">สถานศึกษาเดิม</dt>
               <dd className="font-semibold text-slate-700">{applicant.high_school || "-"}</dd>
             </div>
-            {/* Added: Level / Education */}
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">ระดับชั้น/วุฒิการศึกษา</dt>
               <dd className="font-semibold text-slate-700">{user.current_level || "-"}</dd>
             </div>
-            {/* Added: Education Status */}
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">สถานะการศึกษา</dt>
               <dd className="font-semibold text-slate-700">{formatEduStatus(user.edu_status)}</dd>
             </div>
             <div className="flex justify-between border-b border-slate-50 pb-2">
-              <dt className="text-slate-500">ประเภทแผนการเรียน</dt>
+              <dt className="text-slate-500">ประเภทการศึกษา</dt>
               <dd className="font-semibold text-slate-700">{formatEducationType(studyPlanType)}</dd>
             </div>
             <div className="flex justify-between border-b border-slate-50 pb-2">
@@ -217,6 +218,11 @@ export default function ApplicantDetailPage() {
             <div>
               <dt className="text-slate-500 text-xs uppercase tracking-tighter">สาขาวิชา</dt>
               <dd className="font-semibold text-slate-700">{program.prog_name || "-"}</dd>
+            </div>
+            {/* 2. แสดงข้อมูลชื่อโครงการตรงนี้ */}
+            <div>
+              <dt className="text-slate-500 text-xs uppercase tracking-tighter">โครงการ</dt>
+              <dd className="font-semibold text-slate-700">{project.project_name || "-"}</dd>
             </div>
             <div className="pt-2">
               <span className="bg-primary/5 text-primary px-3 py-1 rounded-full text-xs font-bold">
