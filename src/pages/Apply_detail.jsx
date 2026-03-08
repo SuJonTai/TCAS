@@ -25,6 +25,25 @@ function StatusBadge({ status }) {
   }
 }
 
+// --- Helper Function: Format Education Status ---
+function formatEduStatus(status) {
+  if (status === "studying") return "กำลังศึกษา"
+  if (status === "graduated") return "สำเร็จการศึกษา"
+  return status || "-"
+}
+
+function formatEducationType(type) {
+  switch (type) {
+    case "high-school":
+      return "ม.6"
+    case "vocational":
+      return "ปวช."
+    case "high-vocational":
+      return "ปวส."
+    default:
+      return type || "-"
+  }
+}
 export default function ApplicantDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -54,7 +73,9 @@ export default function ApplicantDetailPage() {
             first_name, 
             last_name, 
             citizen_id,
-            STUDY_PLANS ( plan_name )
+            edu_status,
+            current_level,
+            STUDY_PLANS ( plan_name, plan_group ) 
           ),
           ADMISSION_CRITERIA (
             tcas_round,
@@ -115,6 +136,7 @@ export default function ApplicantDetailPage() {
 
   const user = applicant.USERS || {}
   const studyPlanName = user.STUDY_PLANS?.plan_name || "-"
+  const studyPlanType = user.STUDY_PLANS?.plan_group || "-" // ดึงค่า plan_group
   const criteria = applicant.ADMISSION_CRITERIA || {}
   const program = criteria.PROGRAMS || {}
   const dept = program.DEPARTMENTS || {}
@@ -155,6 +177,20 @@ export default function ApplicantDetailPage() {
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">สถานศึกษาเดิม</dt>
               <dd className="font-semibold text-slate-700">{applicant.high_school || "-"}</dd>
+            </div>
+            {/* Added: Level / Education */}
+            <div className="flex justify-between border-b border-slate-50 pb-2">
+              <dt className="text-slate-500">ระดับชั้น/วุฒิการศึกษา</dt>
+              <dd className="font-semibold text-slate-700">{user.current_level || "-"}</dd>
+            </div>
+            {/* Added: Education Status */}
+            <div className="flex justify-between border-b border-slate-50 pb-2">
+              <dt className="text-slate-500">สถานะการศึกษา</dt>
+              <dd className="font-semibold text-slate-700">{formatEduStatus(user.edu_status)}</dd>
+            </div>
+            <div className="flex justify-between border-b border-slate-50 pb-2">
+              <dt className="text-slate-500">ประเภทแผนการเรียน</dt>
+              <dd className="font-semibold text-slate-700">{formatEducationType(studyPlanType)}</dd>
             </div>
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">แผนการเรียน</dt>

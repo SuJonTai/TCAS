@@ -22,6 +22,7 @@ export default function StudentScores() {
   // TCAS Scores State
   const [subjects, setSubjects] = useState([]);
   const [userScores, setUserScores] = useState({}); // Stores { subject_id: score_value }
+  const [scoreErrors, setScoreErrors] = useState({}); // Stores { subject_id: error_message }
 
   // 1. Initial Load: Fetch Plans, Subjects, and User Data
   useEffect(() => {
@@ -58,14 +59,14 @@ export default function StudentScores() {
             high_school: localStorage.getItem("user_high_school") || "",
             edu_status: userData.edu_status || "",
             edu_type: detectedType,
-            current_level: userData.current_level || "",
+            current_level: 12,
             gpax_5_term: userData.gpax_5_term || "",
             plan_id: userData.plan_id || "",
             other_plan: ""
           });
         }
 
-        // Fetch User's Existing Scores (Updated to score_value)
+        // Fetch User's Existing Scores
         const { data: scoresData } = await supabase
           .from("USER_SCORES")
           .select("subject_id, score_value")
@@ -98,11 +99,43 @@ export default function StudentScores() {
     setFormData(prev => ({ ...prev, edu_type: type, plan_id: "", other_plan: "" }));
   };
 
+  // UPDATED: Restrict scores and set warning messages
   const handleScoreChange = (subjectId, value) => {
+    let finalValue = value;
+    let newErrors = { ...scoreErrors };
+    
+    if (value !== "") {
+      const numValue = parseFloat(value);
+      if (numValue < 0) {
+        finalValue = "0";
+        newErrors[subjectId] = "คะแนนไม่สามารถติดลบได้ (ปรับเป็น 0)";
+      } else if (numValue > 100) {
+        finalValue = "100";
+        newErrors[subjectId] = "คะแนนเต็มคือ 100 (ปรับเป็น 100)";
+      } else {
+        // Clear error if value is valid
+        delete newErrors[subjectId];
+      }
+    } else {
+      delete newErrors[subjectId];
+    }
+
+    setScoreErrors(newErrors);
     setUserScores(prev => ({
       ...prev,
-      [subjectId]: value
+      [subjectId]: finalValue
     }));
+
+    // Optional: Auto-clear the error message after 3 seconds
+    if (newErrors[subjectId]) {
+      setTimeout(() => {
+        setScoreErrors(prev => {
+          const updated = { ...prev };
+          delete updated[subjectId];
+          return updated;
+        });
+      }, 3000);
+    }
   };
 
   // 3. Save to Database
@@ -144,7 +177,7 @@ export default function StudentScores() {
       // Update User Profile
       const updateData = {
         edu_status: formData.edu_status,
-        current_level: parseInt(formData.current_level),
+        current_level: 12,
         gpax_5_term: parseFloat(formData.gpax_5_term),
         plan_id: finalPlanId
       };
@@ -152,8 +185,7 @@ export default function StudentScores() {
       const { error: userError } = await supabase.from("USERS").update(updateData).eq("id", userId);
       if (userError) throw userError;
 
-      // --- SAVE DYNAMIC SCORES (Updated to score_value) ---
-      // Filter out empty score inputs and format for upsert
+      // --- SAVE DYNAMIC SCORES ---
       const scoreUpserts = Object.keys(userScores)
         .filter(subjectId => userScores[subjectId] !== "" && userScores[subjectId] !== null)
         .map(subjectId => ({
@@ -163,7 +195,6 @@ export default function StudentScores() {
         }));
 
       if (scoreUpserts.length > 0) {
-        // Upsert requires user_id and subject_id to be a composite unique key in your DB
         const { error: scoreError } = await supabase
           .from("USER_SCORES")
           .upsert(scoreUpserts, { onConflict: 'user_id, subject_id' });
@@ -201,6 +232,7 @@ export default function StudentScores() {
         
         {/* ================= EDUCATION SECTION ================= */}
         <section>
+          {/* ... [Education section remains exactly the same as previous] ... */}
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-primary/10 p-2 rounded-lg text-primary">
               <GraduationCap size={24} />
@@ -212,7 +244,6 @@ export default function StudentScores() {
           </div>
 
           <div className="space-y-6">
-            {/* Row 1: Education Type Selection */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                 <Fingerprint size={16} /> ประเภทการศึกษา
@@ -239,7 +270,6 @@ export default function StudentScores() {
               </div>
             </div>
 
-            {/* Row 2: Education Status */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-700">สถานะปัจจุบัน</label>
               <div className="grid grid-cols-2 gap-4">
@@ -268,7 +298,6 @@ export default function StudentScores() {
               </div>
             </div>
 
-            {/* School Name */}
             <div className="space-y-2">
               <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                 <School size={16} /> ชื่อสถานศึกษาเดิม
@@ -285,17 +314,6 @@ export default function StudentScores() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700">ชั้นปี/ระดับชั้น (ระบุตัวเลข)</label>
-                <input 
-                  type="number" 
-                  className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all outline-none"
-                  value={formData.current_level}
-                  onChange={(e) => setFormData({...formData, current_level: e.target.value})}
-                  placeholder="เช่น 12 หรือ 3"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700">GPAX (5-6 เทอม)</label>
                 <input 
                   type="number" 
@@ -311,7 +329,6 @@ export default function StudentScores() {
               </div>
             </div>
 
-            {/* Study Plan Selection */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -380,11 +397,21 @@ export default function StudentScores() {
                         type="number" 
                         step="0.01"
                         min="0"
-                        className="w-full p-2.5 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none text-sm"
+                        max="100"
+                        className={`w-full p-2.5 rounded-xl border outline-none text-sm transition-all ${
+                          scoreErrors[subject.id] 
+                            ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-500/10' 
+                            : 'border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'
+                        }`}
                         value={userScores[subject.id] || ""}
                         onChange={(e) => handleScoreChange(subject.id, e.target.value)}
                         placeholder="คะแนน"
                       />
+                      {scoreErrors[subject.id] && (
+                        <p className="text-[10px] text-red-500 font-medium animate-in fade-in duration-200">
+                          {scoreErrors[subject.id]}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -405,11 +432,21 @@ export default function StudentScores() {
                         type="number" 
                         step="0.01"
                         min="0"
-                        className="w-full p-2.5 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none text-sm"
+                        max="100"
+                        className={`w-full p-2.5 rounded-xl border outline-none text-sm transition-all ${
+                          scoreErrors[subject.id] 
+                            ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-500/10' 
+                            : 'border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'
+                        }`}
                         value={userScores[subject.id] || ""}
                         onChange={(e) => handleScoreChange(subject.id, e.target.value)}
                         placeholder="คะแนน"
                       />
+                      {scoreErrors[subject.id] && (
+                        <p className="text-[10px] text-red-500 font-medium animate-in fade-in duration-200">
+                          {scoreErrors[subject.id]}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -431,11 +468,20 @@ export default function StudentScores() {
                         step="0.01"
                         min="0"
                         max="100"
-                        className="w-full p-2.5 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none text-sm"
+                        className={`w-full p-2.5 rounded-xl border outline-none text-sm transition-all ${
+                          scoreErrors[subject.id] 
+                            ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-2 focus:ring-red-500/10' 
+                            : 'border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'
+                        }`}
                         value={userScores[subject.id] || ""}
                         onChange={(e) => handleScoreChange(subject.id, e.target.value)}
                         placeholder="คะแนน"
                       />
+                      {scoreErrors[subject.id] && (
+                        <p className="text-[10px] text-red-500 font-medium animate-in fade-in duration-200">
+                          {scoreErrors[subject.id]}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
 
 export default function SuperAdmin() {
-  const [activeTab, setActiveTab] = useState("staff"); // "staff", "criteria", or "academic"
+  const [activeTab, setActiveTab] = useState("staff");
 
   // --- Database Data ---
   const [facultiesDB, setFacultiesDB] = useState([]);
@@ -25,9 +25,12 @@ export default function SuperAdmin() {
     tcas_round: "1", 
     max_seats: "", 
     min_gpax: "", 
+    edu_status_req: "all",
+    // NEW: Education type requirement (high-school, vocational, high-vocational, all)
+    edu_type_req: "all",
     project_id: "", 
     faculty_id: "", 
-    dept_id: "", // Added dept_id here
+    dept_id: "", 
     program_id: "",
   });
 
@@ -58,22 +61,18 @@ export default function SuperAdmin() {
   }, []);
 
   // --- Derived States (Dropdown Filters) ---
-  
-  // 1. Available Depts for Criteria Form based on selected Faculty
   const availableDeptsForCriteria = useMemo(() => {
     if (!criteriaForm.faculty_id) return [];
     const faculty = facultiesDB.find(f => f.id.toString() === criteriaForm.faculty_id);
     return faculty ? faculty.DEPARTMENTS : [];
   }, [criteriaForm.faculty_id, facultiesDB]);
 
-  // 2. Available Programs for Criteria Form based on selected Department
   const availableProgramsForCriteria = useMemo(() => {
     if (!criteriaForm.dept_id) return [];
     const dept = availableDeptsForCriteria.find(d => d.id.toString() === criteriaForm.dept_id);
     return dept ? dept.PROGRAMS : [];
   }, [criteriaForm.dept_id, availableDeptsForCriteria]);
 
-  // Available Depts for Academic Structure Form
   const availableDeptsForProg = useMemo(() => {
     if (!progForm.faculty_id) return [];
     const faculty = facultiesDB.find(f => f.id.toString() === progForm.faculty_id);
@@ -84,6 +83,8 @@ export default function SuperAdmin() {
   const handleStaffSubmit = async (e) => {
     e.preventDefault();
     setStaffLoading(true);
+    
+    // Note: Move this hashing logic to a backend route for production security
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(staffForm.password, salt);
 
@@ -113,6 +114,8 @@ export default function SuperAdmin() {
       tcas_round: parseInt(criteriaForm.tcas_round),
       max_seats: parseInt(criteriaForm.max_seats),
       min_gpax: parseFloat(criteriaForm.min_gpax),
+      edu_status_req: criteriaForm.edu_status_req,
+      edu_type_req: criteriaForm.edu_type_req, // UPDATED: Sending education type
       program_id: parseInt(criteriaForm.program_id),
       project_id: parseInt(criteriaForm.project_id)
     }]);
@@ -121,7 +124,15 @@ export default function SuperAdmin() {
     if (error) alert("Error: " + error.message);
     else {
       setCriteriaSuccess(true);
-      setCriteriaForm({ ...criteriaForm, max_seats: "", min_gpax: "", dept_id: "", program_id: "" });
+      setCriteriaForm({ 
+        ...criteriaForm, 
+        max_seats: "", 
+        min_gpax: "", 
+        dept_id: "", 
+        program_id: "",
+        edu_status_req: "all",
+        edu_type_req: "all" // Resetting to default
+      });
       setTimeout(() => setCriteriaSuccess(false), 3000);
     }
   };
@@ -313,7 +324,28 @@ export default function SuperAdmin() {
                 </div>
               </div>
 
-              <div>
+              {/* UPDATED: Education Requirement Types */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border pt-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">สถานะการศึกษา</label>
+                  <select required value={criteriaForm.edu_status_req} onChange={e => setCriteriaForm({...criteriaForm, edu_status_req: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
+                    <option value="all">รับทั้งหมด (กำลังศึกษา/จบแล้ว)</option>
+                    <option value="studying">รับเฉพาะผู้กำลังศึกษา</option>
+                    <option value="graduated">รับเฉพาะผู้สำเร็จการศึกษา</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">วุฒิการศึกษาที่รองรับ</label>
+                  <select required value={criteriaForm.edu_type_req} onChange={e => setCriteriaForm({...criteriaForm, edu_type_req: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
+                    <option value="all">รับทุกวุฒิการศึกษา</option>
+                    <option value="high-school">มัธยมศึกษาตอนปลาย (ม.6)</option>
+                    <option value="vocational">ประกาศนียบัตรวิชาชีพ (ปวช.)</option>
+                    <option value="high-vocational">ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="border-t border-border pt-4">
                 <label className="mb-1 block text-sm font-medium">โครงการรับเข้าศึกษา</label>
                 <select required value={criteriaForm.project_id} onChange={e => setCriteriaForm({...criteriaForm, project_id: e.target.value})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
                   <option value="" disabled>เลือกโครงการ</option>
@@ -321,8 +353,7 @@ export default function SuperAdmin() {
                 </select>
               </div>
 
-              {/* Added Dept and Program Selection inside Criteria */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-border pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium">คณะ</label>
                   <select required value={criteriaForm.faculty_id} onChange={e => setCriteriaForm({...criteriaForm, faculty_id: e.target.value, dept_id: "", program_id: ""})} className="h-10 w-full rounded-md border border-input bg-background px-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary">
@@ -451,7 +482,6 @@ export default function SuperAdmin() {
                 </button>
               </form>
             </section>
-
           </div>
         )}
 

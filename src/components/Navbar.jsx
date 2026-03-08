@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 const navLinks = [
   { href: "/", label: "หน้าหลัก" },
   { href: "/admission", label: "เกณฑ์รับสมัคร" },
-  { href: "/student/scores", label: "คะแนนของฉัน" },
+  { href: "/student/details", label: "ข้อมูลผู้สมัคร" },
   { href: "/apply", label: "สมัครเรียน" },
   { href: "/staff", label: "สำหรับเจ้าหน้าที่" },
   { href: "/login", label: "เข้าสู่ระบบ" },
@@ -36,13 +36,13 @@ export default function Navbar() {
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {
-    const needsLogin = ["/apply", "/staff", "/student/scores", "/staff/super-admin"].includes(href);
+    const needsLogin = ["/apply", "/staff", "/student/details", "/staff/super-admin"].includes(href);
     
     // Redirect guests to login
     if (!isLogin && needsLogin) return "/login"
 
     // Prevent staff from accessing applicant pages
-    if (isLogin && role === "staff" && ["/apply", "/student/scores"].includes(href)) return "/staff"
+    if (isLogin && role === "staff" && ["/apply", "/student/details"].includes(href)) return "/staff"
 
     // Prevent applicants from accessing staff pages
     if (isLogin && (role === "applicant" || role === "student") && href.startsWith("/staff")) return "/apply"
@@ -54,7 +54,7 @@ export default function Navbar() {
   // Filter out links the user shouldn't even see based on their role
   const visibleLinks = navLinks.filter(link => {
     const isApply = link.href === "/apply";
-    const isStudentScore = link.href === "/student/scores";
+    const isStudentScore = link.href === "/student/details";
     const isStaffLink = link.href.startsWith("/staff"); // Catches both /staff and /staff/super-admin
 
     // 1. Hide Applicant-only links from Staff

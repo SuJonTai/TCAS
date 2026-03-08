@@ -59,7 +59,7 @@ export default function App() {
         <Route path="/admission" element={<Admission />} />
         <Route path="/admission/:id" element={<AdmissionDetail />} />
         <Route path="/apply" element={<RequireApplicant><Apply /></RequireApplicant>} />
-        <Route path="/student/scores" element={<RequireApplicant><StudentDetail /></RequireApplicant>} />
+        <Route path="/student/details" element={<RequireApplicant><StudentDetail /></RequireApplicant>} />
         
         {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />

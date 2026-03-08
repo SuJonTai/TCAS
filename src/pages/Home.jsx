@@ -35,8 +35,8 @@ function AnnouncementBanner() {
 function HeroSection() {
   const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
   const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
-  const applyTarget = !isLogin ? "/login" : role === "staff" ? "/staff" : "/apply";
-  const showApplyButton = !isLogin || role === "applicant";
+  const isStudent = role === "applicant" || role === "student";
+
   return (
     <section className="px-4 py-16 lg:py-24">
       <div className="mx-auto max-w-4xl text-center">
@@ -50,26 +50,38 @@ function HeroSection() {
           Hub
         </h1>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          
           <Link to="/admission">
             <Button size="lg" variant="outline" className="gap-2">
               <BookOpen className="h-4 w-4" />
               รายละเอียดรับสมัคร
             </Button>
           </Link>
-          {showApplyButton && (
-            <Link to={applyTarget}>
+
+          {/* Conditional Button Rendering based on Login Status and Role */}
+          {!isLogin ? (
+            <Link to="/login">
+              <Button size="lg" className="gap-2">
+                <LogIn className="h-4 w-4" />
+                เข้าสู่ระบบ
+              </Button>
+            </Link>
+          ) : isStudent ? (
+            <Link to="/apply">
               <Button size="lg" className="gap-2">
                 <UserPlus className="h-4 w-4" />
                 สมัครเรียน
               </Button>
             </Link>
-          )}
-          <Link to="/login">
-            <Button size="lg" variant="ghost" className="gap-2">
-              <LogIn className="h-4 w-4" />
-              เข้าสู่ระบบ
-            </Button>
-          </Link>
+          ) : role === "staff" ? (
+            <Link to="/staff">
+              <Button size="lg" className="gap-2">
+                <Users className="h-4 w-4" />
+                จัดการระบบ (Staff)
+              </Button>
+            </Link>
+          ) : null}
+
         </div>
       </div>
     </section>
