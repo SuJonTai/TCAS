@@ -420,10 +420,11 @@ export default function StudentScores() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <label htmlFor="schoolName" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <School size={16} /> ชื่อสถานศึกษาเดิม
                 </label>
                 <input 
+                  id="schoolName"
                   type="text" 
                   className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all outline-none"
                   value={formData.high_school}
@@ -435,8 +436,9 @@ export default function StudentScores() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold text-gray-700">GPAX (5-6 เทอม)</label>
+                  <label htmlFor="gpax" className="text-sm font-semibold text-gray-700">GPAX (5-6 เทอม)</label>
                   <input 
+                    id="gpax"
                     type="number" 
                     step="0.01" min="0.00" max="4.00"
                     className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all outline-none"

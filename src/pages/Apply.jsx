@@ -14,15 +14,18 @@ export default function Apply() {
   const [criteriaDB, setCriteriaDB] = useState([]); 
   const [userProfile, setUserProfile] = useState(null);
   
+  // --- Form States ---
   const [selectedRound, setSelectedRound] = useState("");
+  const [selectedProject, setSelectedProject] = useState(""); // Stores project_id
   const [selectedFaculty, setSelectedFaculty] = useState("");
   const [selectedProgram, setSelectedProgram] = useState(""); 
   const [schoolName, setSchoolName] = useState("");
   
-  // File States
+  // --- File States ---
   const [portfolioFile, setPortfolioFile] = useState(null);
   const [transcriptFile, setTranscriptFile] = useState(null);
   
+  // --- UI States ---
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -35,37 +38,102 @@ export default function Apply() {
 
       if (!userId) return;
 
-      const { data: userData } = await supabase
-        .from('USERS')
-        .select('gpax_5_term, current_level')
-        .eq('id', userId)
-        .single();
-      if (userData) setUserProfile(userData);
+      try {
+        // 1. Fetch User Profile
+        const { data: userData } = await supabase
+          .from('USERS')
+          .select('gpax_5_term, current_level')
+          .eq('id', userId)
+          .single();
+        if (userData) setUserProfile(userData);
 
-      const { data: facData } = await supabase.from('FACULTIES').select(`id, faculty_name, DEPARTMENTS (id, dept_name, PROGRAMS (id, prog_name))`);
-      const { data: critData } = await supabase.from('ADMISSION_CRITERIA').select('*');
-      
-      setFacultiesDB(facData || []);
-      setCriteriaDB(critData || []);
+        // 2. Fetch Faculties & Programs (Fixed: No trailing comma)
+        const { data: facData, error: facError } = await supabase
+          .from('FACULTIES')
+          .select(`id, faculty_name, DEPARTMENTS (id, dept_name, PROGRAMS (id, prog_name))`);
+        if (facError) throw facError;
+        setFacultiesDB(facData || []);
+
+        // 3. Fetch Criteria & Join with ADMISSION_Projects (Updated to ADMISSION_CRITERIA & project_id)
+        // NOTE: Make sure 'ADMISSION_PROJECTS' matches your exact table name in Supabase!
+        const { data: critData, error: critError } = await supabase
+          .from('ADMISSION_CRITERIA')
+          .select(`
+            *,
+            ADMISSION_PROJECTS (id, project_name)
+          `);
+        if (critError) throw critError;
+        setCriteriaDB(critData || []);
+
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setErrorMessage("เกิดข้อผิดพลาดในการโหลดข้อมูล กรุณารีเฟรชหน้าเว็บ");
+      }
     };
     fetchData();
   }, []);
 
-  const validProgramIds = useMemo(() => {
-    if (!selectedRound) return [];
-    return criteriaDB.filter(c => c.tcas_round.toString() === selectedRound).map(c => c.program_id);
+  // ==========================================
+  // CASCADING DROPDOWN LOGIC
+  // ==========================================
+
+  // 1. ADMISSION_Projects available for the selected Round
+  const availableADMISSION_Projects = useMemo(() => {
+    if (!selectedRound || !criteriaDB.length) return [];
+    
+    // Filter criteria for this round
+    const criteriaForRound = criteriaDB.filter(c => c.tcas_round?.toString() === selectedRound);
+    
+    // Extract unique ADMISSION_projects using a Map to avoid duplicates
+    const projectMap = new Map();
+    criteriaForRound.forEach(c => {
+      if (c.project_id && !projectMap.has(c.project_id)) {
+        projectMap.set(c.project_id, {
+          id: c.project_id,
+          // Fallback to ID if the join fails or name is missing
+          name: c.ADMISSION_PROJECTS?.project_name || `โครงการ ${c.project_id}`
+        });
+      }
+    });
+    
+    return Array.from(projectMap.values());
   }, [selectedRound, criteriaDB]);
 
-  const availableFaculties = useMemo(() => {
-    if (!selectedRound) return [];
-    return facultiesDB.filter(f => f.DEPARTMENTS?.some(d => d.PROGRAMS?.some(p => validProgramIds.includes(p.id))));
-  }, [facultiesDB, validProgramIds, selectedRound]);
+  // Helper: Get valid Program IDs based on Round AND Project
+  const validProgramIds = useMemo(() => {
+    if (!selectedRound || !selectedProject) return [];
+    return criteriaDB
+      .filter(c => 
+        c.tcas_round?.toString() === selectedRound && 
+        c.project_id?.toString() === selectedProject
+      )
+      .map(c => c.program_id);
+  }, [selectedRound, selectedProject, criteriaDB]);
 
+  // 2. Faculties available based on valid Programs
+  const availableFaculties = useMemo(() => {
+    if (!validProgramIds.length) return [];
+    return facultiesDB.filter(f => 
+      f.DEPARTMENTS?.some(d => 
+        d.PROGRAMS?.some(p => validProgramIds.includes(p.id))
+      )
+    );
+  }, [facultiesDB, validProgramIds]);
+
+  // 3. Programs available based on Selected Faculty + valid Programs
   const availablePrograms = useMemo(() => {
-    if (!selectedFaculty || !selectedRound) return [];
+    if (!selectedFaculty || !validProgramIds.length) return [];
     const faculty = facultiesDB.find(f => f.id.toString() === selectedFaculty);
-    return faculty?.DEPARTMENTS?.flatMap(d => d.PROGRAMS.map(p => ({ id: p.id, name: p.prog_name }))).filter(p => validProgramIds.includes(p.id)) || [];
-  }, [selectedFaculty, facultiesDB, validProgramIds, selectedRound]);
+    
+    return faculty?.DEPARTMENTS?.flatMap(d => 
+      d.PROGRAMS.map(p => ({ id: p.id, name: p.prog_name }))
+    ).filter(p => validProgramIds.includes(p.id)) || [];
+  }, [selectedFaculty, facultiesDB, validProgramIds]);
+
+
+  // ==========================================
+  // SUBMISSION LOGIC
+  // ==========================================
 
   const uploadFile = async (file, bucket) => {
     if (!file) return "";
@@ -89,13 +157,14 @@ export default function Apply() {
       if (!userProfile?.gpax_5_term) throw new Error("กรุณาระบุ GPAX ในหน้าข้อมูลการศึกษาก่อนสมัคร");
       if (!transcriptFile) throw new Error("กรุณาอัปโหลดไฟล์ระเบียนแสดงผลการเรียน (Transcript)");
 
+      // Find the exact criteria ID matching the selections
       const matchingCriteria = criteriaDB.find(
-        (c) => c.tcas_round.toString() === selectedRound && c.program_id.toString() === selectedProgram
+        (c) => c.tcas_round?.toString() === selectedRound && 
+               c.program_id?.toString() === selectedProgram &&
+               c.project_id?.toString() === selectedProject
       );
 
-      /*if (userProfile.gpax_5_term < matchingCriteria.min_gpax) {
-        throw new Error(`เกรดของคุณ (${userProfile.gpax_5_term}) ไม่ถึงเกณฑ์ขั้นต่ำของสาขานี้ (${matchingCriteria.min_gpax})`);
-      }*/
+      if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่ตรงกับข้อมูลที่เลือก");
 
       // Upload both files
       const [portfolioUrl, transcriptUrl] = await Promise.all([
@@ -112,7 +181,7 @@ export default function Apply() {
           gpax: userProfile.gpax_5_term,
           status: 'pending',
           portfolio_url: portfolioUrl,
-          transcript_url: transcriptUrl // Ensure this column exists in your APPLICATION table
+          transcript_url: transcriptUrl 
         }]);
 
       if (insertError) throw insertError;
@@ -153,28 +222,83 @@ export default function Apply() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            
+            {/* 1. ROUND */}
             <div>
               <label className="block text-sm font-semibold mb-1">รอบที่สมัคร</label>
-              <select value={selectedRound} onChange={(e) => setSelectedRound(e.target.value)} className="w-full p-2 border rounded-lg outline-none" required>
-                <option value="">เลือก...</option>
-                {rounds.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              <select 
+                value={selectedRound} 
+                onChange={(e) => {
+                  setSelectedRound(e.target.value);
+                  setSelectedProject(""); // Clear downstream
+                  setSelectedFaculty("");
+                  setSelectedProgram("");
+                }} 
+                className="w-full p-2 border rounded-lg outline-none text-sm" 
+                required
+              >
+                <option value="">เลือกรอบ...</option>
+                {rounds.map(r => <option key={`round-${r.value}`} value={r.value}>{r.label}</option>)}
               </select>
             </div>
+
+            {/* 2. PROJECT */}
+            <div>
+              <label className="block text-sm font-semibold mb-1">โครงการ</label>
+              <select 
+                value={selectedProject} 
+                onChange={(e) => {
+                  setSelectedProject(e.target.value);
+                  setSelectedFaculty(""); // Clear downstream
+                  setSelectedProgram("");
+                }} 
+                className="w-full p-2 border rounded-lg outline-none text-sm disabled:bg-gray-50"
+                disabled={!selectedRound}
+                required
+              >
+                <option value="">เลือกโครงการ...</option>
+                {availableADMISSION_Projects.map((proj) => (
+                  <option key={`proj-${proj.id}`} value={proj.id}>{proj.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. FACULTY */}
             <div>
               <label className="block text-sm font-semibold mb-1">คณะ</label>
-              <select value={selectedFaculty} onChange={(e) => setSelectedFaculty(e.target.value)} className="w-full p-2 border rounded-lg outline-none" disabled={!selectedRound} required>
-                <option value="">เลือก...</option>
-                {availableFaculties.map(f => <option key={f.id} value={f.id}>{f.faculty_name}</option>)}
+              <select 
+                value={selectedFaculty} 
+                onChange={(e) => {
+                  setSelectedFaculty(e.target.value);
+                  setSelectedProgram(""); // Clear downstream
+                }} 
+                className="w-full p-2 border rounded-lg outline-none text-sm disabled:bg-gray-50" 
+                disabled={!selectedProject} 
+                required
+              >
+                <option value="">เลือกคณะ...</option>
+                {availableFaculties.map(f => <option key={`fac-${f.id}`} value={f.id}>{f.faculty_name}</option>)}
               </select>
             </div>
+
+            {/* 4. PROGRAM */}
             <div>
               <label className="block text-sm font-semibold mb-1">สาขา</label>
-              <select value={selectedProgram} onChange={(e) => setSelectedProgram(e.target.value)} className="w-full p-2 border rounded-lg outline-none" disabled={!selectedFaculty} required>
-                <option value="">เลือก...</option>
-                {availablePrograms.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <select 
+                value={selectedProgram} 
+                onChange={(e) => setSelectedProgram(e.target.value)} 
+                className="w-full p-2 border rounded-lg outline-none text-sm disabled:bg-gray-50" 
+                disabled={!selectedFaculty} 
+                required
+              >
+                <option value="">เลือกสาขา...</option>
+                {availablePrograms.map((p) => (
+                  <option key={`prog-${p.id}`} value={p.id}>{p.name}</option>
+                ))}
               </select>
             </div>
+            
           </div>
 
           <hr className="border-gray-100" />
@@ -196,7 +320,7 @@ export default function Apply() {
                 />
                 <label htmlFor="transcript-upload" className="cursor-pointer space-y-2 block">
                   <Upload className="mx-auto text-gray-400" size={24} />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 truncate px-2">
                     {transcriptFile ? transcriptFile.name : "เลือกไฟล์ใบแสดงผลการเรียน"}
                   </p>
                 </label>
@@ -217,7 +341,7 @@ export default function Apply() {
                 />
                 <label htmlFor="portfolio-upload" className="cursor-pointer space-y-2 block">
                   <Upload className="mx-auto text-gray-400" size={24} />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 truncate px-2">
                     {portfolioFile ? portfolioFile.name : "เลือกไฟล์แฟ้มสะสมผลงาน (ถ้ามี)"}
                   </p>
                 </label>
@@ -225,7 +349,7 @@ export default function Apply() {
             </div>
           </div>
 
-          <button type="submit" disabled={loading} className="w-full py-4 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20">
+          <button type="submit" disabled={loading} className="w-full py-4 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 disabled:opacity-70 disabled:cursor-not-allowed">
             {loading ? "กำลังอัปโหลดและบันทึกข้อมูล..." : "ยืนยันการสมัคร"}
           </button>
         </form>
@@ -237,7 +361,7 @@ export default function Apply() {
             <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
             <h3 className="text-xl font-bold text-gray-900">สำเร็จ!</h3>
             <p className="text-gray-500 mt-2 mb-6">บันทึกใบสมัครของคุณเข้าสู่ระบบแล้ว</p>
-            <button onClick={() => window.location.href = '/'} className="w-full py-2 bg-primary text-white rounded-lg font-semibold">ปิดหน้าต่างนี้</button>
+            <button onClick={() => window.location.href = '/'} className="w-full py-2 bg-primary text-white rounded-lg font-semibold hover:bg-primary/90 transition-colors">ปิดหน้าต่างนี้</button>
           </div>
         </div>
       )}
