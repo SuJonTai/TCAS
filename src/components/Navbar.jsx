@@ -38,7 +38,7 @@ export default function Navbar() {
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {
-    const needsLogin = ["/apply", "/staff", "/student/details", "/staff/super-admin"].includes(href);
+    const needsLogin = ["/apply", "/staff", "/student/details", "/staff/super-admin/academic", "/staff/super-admin/accounts", "/staff/super-admin/criteria"].includes(href);
     
     // Redirect guests to login
     if (!isLogin && needsLogin) return "/login"
@@ -57,7 +57,7 @@ export default function Navbar() {
   const visibleLinks = navLinks.filter(link => {
     const isApply = link.href === "/apply";
     const isStudentScore = link.href === "/student/details";
-    const isStaffLink = link.href.startsWith("/staff"); // Catches both /staff and /staff/super-admin
+    const isStaffLink = link.href.startsWith("/staff"); // Catches links under /staff 
 
     // 1. Hide Applicant-only links from Staff
     if (isLogin && role === "staff" && (isApply || isStudentScore)) return false;
@@ -66,7 +66,7 @@ export default function Navbar() {
     if (isLogin && (role === "applicant" || role === "student") && isStaffLink) return false;
     
     // 3. Hide restricted links from Guests (Allow them to see /apply and /staff so they are prompted to login)
-    if (!isLogin && (isStudentScore || link.href === "/staff/super-admin")) return false;
+    if (!isLogin && (isStudentScore || link.href.startsWith("/staff"))) return false;
 
     return true;
   });

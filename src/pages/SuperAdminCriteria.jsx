@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { PlusCircle, CheckCircle2, Trash2 } from "lucide-react";
+import { PlusCircle, CheckCircle2, Trash2, Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 export default function SuperAdminCriteria() {
@@ -7,10 +7,14 @@ export default function SuperAdminCriteria() {
   const [projectsDB, setProjectsDB] = useState([]);
   const [subjectsDB, setSubjectsDB] = useState([]);
   const [plansDB, setPlansDB] = useState([]);
+  const [criteriaList, setCriteriaList] = useState([]); 
 
   const [criteriaLoading, setCriteriaLoading] = useState(false);
   const [criteriaSuccess, setCriteriaSuccess] = useState(false);
-  const [criteriaForm, setCriteriaForm] = useState({
+  
+  const [editingId, setEditingId] = useState(null); 
+
+  const initialFormState = {
     academic_year: new Date().getFullYear() + 543,
     tcas_round: "1", 
     max_seats: "", 
@@ -24,21 +28,30 @@ export default function SuperAdminCriteria() {
     end_date: "",
     study_plans: [],
     subjects: []
-  });
+  };
+
+  const [criteriaForm, setCriteriaForm] = useState(initialFormState);
+
+  const fetchData = async () => {
+    const [{ data: facs }, { data: projs }, { data: subs }, { data: plans }, { data: crits }] = await Promise.all([
+      supabase.from('FACULTIES').select('id, faculty_name, DEPARTMENTS ( id, dept_name, PROGRAMS ( id, prog_name ) )'),
+      supabase.from('ADMISSION_PROJECTS').select('*'),
+      supabase.from('SUBJECTS').select('*'),
+      supabase.from('STUDY_PLANS').select('*'),
+      supabase.from('ADMISSION_CRITERIA').select(`
+        *,
+        CRITERIA_PLANS ( plan_id ),
+        CRITERIA_SUBJECTS ( subject_id, min_score, weight )
+      `).order('id', { ascending: false })
+    ]);
+    if (facs) setFacultiesDB(facs);
+    if (projs) setProjectsDB(projs);
+    if (subs) setSubjectsDB(subs);
+    if (plans) setPlansDB(plans);
+    if (crits) setCriteriaList(crits);
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      const [{ data: facs }, { data: projs }, { data: subs }, { data: plans }] = await Promise.all([
-        supabase.from('FACULTIES').select('id, faculty_name, DEPARTMENTS ( id, dept_name, PROGRAMS ( id, prog_name ) )'),
-        supabase.from('ADMISSION_PROJECTS').select('*'),
-        supabase.from('SUBJECTS').select('*'),
-        supabase.from('STUDY_PLANS').select('*')
-      ]);
-      if (facs) setFacultiesDB(facs);
-      if (projs) setProjectsDB(projs);
-      if (subs) setSubjectsDB(subs);
-      if (plans) setPlansDB(plans);
-    };
     fetchData();
   }, []);
 
@@ -54,24 +67,123 @@ export default function SuperAdminCriteria() {
     return dept ? dept.PROGRAMS : [];
   }, [criteriaForm.dept_id, availableDeptsForCriteria]);
 
+  const handleEdit = (criteria) => {
+    let fId = "", dId = "";
+    for (const f of facultiesDB) {
+      for (const d of f.DEPARTMENTS) {
+        if (d.PROGRAMS.some(p => p.id === criteria.program_id)) {
+          fId = f.id.toString();
+          dId = d.id.toString();
+          break;
+        }
+      }
+    }
+
+    let parsedEduStatus = [];
+    if (Array.isArray(criteria.edu_status_req)) {
+      parsedEduStatus = criteria.edu_status_req;
+    } else if (typeof criteria.edu_status_req === 'string') {
+      try {
+        parsedEduStatus = JSON.parse(criteria.edu_status_req);
+      } catch (e) {
+        parsedEduStatus = criteria.edu_status_req.replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+      }
+    }
+
+    setEditingId(criteria.id);
+    setCriteriaForm({
+      academic_year: criteria.academic_year,
+      tcas_round: criteria.tcas_round,
+      max_seats: criteria.max_seats,
+      min_gpax: criteria.min_gpax,
+      edu_status_req: parsedEduStatus,
+      project_id: criteria.project_id?.toString() || "",
+      faculty_id: fId,
+      dept_id: dId,
+      program_id: criteria.program_id?.toString() || "",
+      start_date: criteria.start_date ? criteria.start_date.split('T')[0] : "",
+      end_date: criteria.end_date ? criteria.end_date.split('T')[0] : "",
+      study_plans: criteria.CRITERIA_PLANS?.map(p => p.plan_id) || [],
+      subjects: criteria.CRITERIA_SUBJECTS || []
+    });
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("คุณแน่ใจหรือไม่ที่จะลบเกณฑ์การรับสมัครนี้? ข้อมูลนี้จะไม่สามารถกู้คืนได้")) {
+      const { error } = await supabase.from('ADMISSION_CRITERIA').delete().eq('id', id);
+      
+      if (error) {
+        if (error.code === '23503') {
+          return alert("ไม่สามารถลบได้ เนื่องจากยังมีผู้สมัครที่ใช้เกณฑ์นี้");
+        } else {
+          alert("เกิดข้อผิดพลาดในการลบ: " + error.message);
+        }
+      } else {
+        alert("ลบข้อมูลสำเร็จ");
+        fetchData(); 
+        if (editingId === id) {
+          cancelEdit(); 
+        }
+      }
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setCriteriaForm(initialFormState);
+  };
+
   const handleCriteriaSubmit = async (e) => {
     e.preventDefault();
 
-    const hasStatus = criteriaForm.edu_status_req.some(req => ["studying", "graduated"].includes(req));
-    const hasType = criteriaForm.edu_status_req.some(req => ["high-school", "vocational", "high-vocational"].includes(req));
+    // --- ตรวจสอบข้อมูลซ้ำ (Duplicate Validation) ---
+    // ป้องกันการเพิ่มข้อมูล คณะ/ภาค/สาขา และ โครงการ ที่ซ้ำกันในรอบและปีเดียวกัน
+    const isDuplicate = criteriaList.some(crit => {
+      // ถ้ากำลังแก้ไขอยู่ ให้ข้ามการเช็คตัวเอง
+      if (editingId && crit.id === editingId) return false;
+
+      return (
+        crit.project_id?.toString() === criteriaForm.project_id &&
+        crit.program_id?.toString() === criteriaForm.program_id &&
+        crit.academic_year?.toString() === criteriaForm.academic_year?.toString() &&
+        crit.tcas_round?.toString() === criteriaForm.tcas_round?.toString()
+      );
+    });
+
+    if (isDuplicate) {
+      return alert("ไม่สามารถเพิ่มได้: มีโครงการและสาขาวิชานี้อยู่ในระบบแล้ว (สำหรับปีการศึกษาและรอบนี้)");
+    }
+    // ----------------------------------------------
+
+    const safeEduStatusReq = criteriaForm.edu_status_req || [];
+    const hasStatus = safeEduStatusReq.some(req => ["studying", "graduated"].includes(req));
+    const hasType = safeEduStatusReq.some(req => ["high-school", "vocational", "high-vocational"].includes(req));
 
     if (!hasStatus) return alert("กรุณาเลือกสถานะการศึกษาอย่างน้อย 1 รายการ");
     if (!hasType) return alert("กรุณาเลือกวุฒิการศึกษาอย่างน้อย 1 รายการ");
     if (criteriaForm.study_plans.length === 0) return alert("กรุณาเลือกแผนการเรียนอย่างน้อย 1 แผน");
     if (new Date(criteriaForm.start_date) > new Date(criteriaForm.end_date)) return alert("วันที่สิ้นสุดการรับสมัคร ต้องไม่ก่อนวันที่เริ่มต้น");
 
+    let totalWeight = 0;
     for (const sub of criteriaForm.subjects) {
       if (!sub.subject_id) return alert("กรุณาเลือกวิชาให้ครบถ้วน");
+      const minScore = parseFloat(sub.min_score) || 0;
+      const weight = parseFloat(sub.weight) || 0;
+      if (minScore > 100) return alert("คะแนนขั้นต่ำต้องไม่เกิน 100");
+      if (weight > 100) return alert("ค่าน้ำหนักต้องไม่เกิน 100%");
+      if (weight < 0 || minScore < 0) return alert("คะแนนและค่าน้ำหนักห้ามติดลบ");
+      totalWeight += weight;
+    }
+
+    if (criteriaForm.subjects.length > 0 && totalWeight !== 100) {
+      return alert(`ผลรวมค่าน้ำหนักต้องเท่ากับ 100% (ปัจจุบัน: ${totalWeight}%)`);
     }
 
     setCriteriaLoading(true);
-    
-    const { data: criteriaData, error: criteriaError } = await supabase.from('ADMISSION_CRITERIA').insert([{
+
+    const payload = {
       academic_year: parseInt(criteriaForm.academic_year),
       tcas_round: parseInt(criteriaForm.tcas_round),
       max_seats: parseInt(criteriaForm.max_seats),
@@ -81,26 +193,37 @@ export default function SuperAdminCriteria() {
       project_id: parseInt(criteriaForm.project_id),
       start_date: criteriaForm.start_date, 
       end_date: criteriaForm.end_date 
-    }]).select();
+    };
 
-    if (criteriaError) {
-      setCriteriaLoading(false);
-      return alert("Error Criteria: " + criteriaError.message);
+    let targetCriteriaId = editingId;
+
+    if (editingId) {
+      const { error: updateError } = await supabase.from('ADMISSION_CRITERIA').update(payload).eq('id', editingId);
+      if (updateError) {
+        setCriteriaLoading(false);
+        return alert("Error Updating Criteria: " + updateError.message);
+      }
+      
+      await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', editingId);
+      await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', editingId);
+
+    } else {
+      const { data: criteriaData, error: insertError } = await supabase.from('ADMISSION_CRITERIA').insert([payload]).select();
+      if (insertError) {
+        setCriteriaLoading(false);
+        return alert("Error Creating Criteria: " + insertError.message);
+      }
+      targetCriteriaId = criteriaData[0].id;
     }
 
-    const newCriteriaId = criteriaData[0].id;
-
     if (criteriaForm.study_plans.length > 0) {
-      const plansToInsert = criteriaForm.study_plans.map(planId => ({
-        criteria_id: newCriteriaId,
-        plan_id: parseInt(planId)
-      }));
+      const plansToInsert = criteriaForm.study_plans.map(planId => ({ criteria_id: targetCriteriaId, plan_id: parseInt(planId) }));
       await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
     }
 
     if (criteriaForm.subjects.length > 0) {
       const subjectsToInsert = criteriaForm.subjects.map(sub => ({
-        criteria_id: newCriteriaId,
+        criteria_id: targetCriteriaId,
         subject_id: parseInt(sub.subject_id), 
         min_score: parseFloat(sub.min_score) || 0,
         weight: parseFloat(sub.weight) || 0
@@ -110,18 +233,15 @@ export default function SuperAdminCriteria() {
 
     setCriteriaLoading(false);
     setCriteriaSuccess(true);
-    setCriteriaForm({ 
-      ...criteriaForm, max_seats: "", min_gpax: "", dept_id: "", program_id: "", edu_status_req: [],
-      start_date: "", end_date: "", study_plans: [], subjects: []
-    });
+    setEditingId(null);
+    setCriteriaForm(initialFormState);
+    fetchData(); 
+    
     setTimeout(() => setCriteriaSuccess(false), 3000);
   };
 
   const addSubjectRow = () => {
-    setCriteriaForm(prev => ({
-      ...prev,
-      subjects: [...prev.subjects, { subject_id: "", min_score: "", weight: "" }]
-    }));
+    setCriteriaForm(prev => ({ ...prev, subjects: [...prev.subjects, { subject_id: "", min_score: "", weight: "" }] }));
   };
 
   const updateSubjectRow = (index, field, value) => {
@@ -141,15 +261,26 @@ export default function SuperAdminCriteria() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl pt-8 px-4 lg:px-8 pb-12 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="mx-auto max-w-4xl pt-8 px-4 lg:px-8 pb-12 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="mb-6 flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">จัดการเกณฑ์การรับสมัคร</h1>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <div className="mb-6 flex items-center gap-3 border-b pb-4">
-          <div className="rounded-full bg-primary/10 p-2"><PlusCircle className="h-6 w-6 text-primary" /></div>
-          <div><h2 className="text-xl font-bold text-foreground">เปิดรอบรับสมัครใหม่</h2></div>
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm mb-8">
+        <div className="mb-6 flex items-center justify-between border-b pb-4">
+          <div className="flex items-center gap-3">
+            <div className={`rounded-full p-2 ${editingId ? 'bg-amber-100' : 'bg-primary/10'}`}>
+              {editingId ? <Pencil className="h-6 w-6 text-amber-600" /> : <PlusCircle className="h-6 w-6 text-primary" />}
+            </div>
+            <h2 className="text-xl font-bold text-foreground">
+              {editingId ? "แก้ไขเกณฑ์รับสมัคร" : "เปิดรอบรับสมัครใหม่"}
+            </h2>
+          </div>
+          {editingId && (
+            <button onClick={cancelEdit} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" /> ยกเลิกการแก้ไข
+            </button>
+          )}
         </div>
 
         {criteriaSuccess && (
@@ -234,11 +365,11 @@ export default function SuperAdminCriteria() {
                 <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                   <input
                     type="checkbox"
-                    checked={criteriaForm.edu_status_req.includes(option.id)}
+                    checked={(criteriaForm.edu_status_req || []).includes(option.id)}
                     onChange={(e) => {
                       const isChecked = e.target.checked;
                       setCriteriaForm(prev => {
-                        const currentReqs = prev.edu_status_req;
+                        const currentReqs = prev.edu_status_req || [];
                         return { ...prev, edu_status_req: isChecked ? [...currentReqs, option.id] : currentReqs.filter(item => item !== option.id) };
                       });
                     }}
@@ -248,7 +379,7 @@ export default function SuperAdminCriteria() {
                 </label>
               ))}
             </div>
-            {!criteriaForm.edu_status_req.some(req => ["studying", "graduated"].includes(req)) && (
+            {!(criteriaForm.edu_status_req || []).some(req => ["studying", "graduated"].includes(req)) && (
               <p className="mt-1 text-xs text-red-500">กรุณาเลือกสถานะอย่างน้อย 1 รายการ</p>
             )}
           </div>
@@ -264,11 +395,11 @@ export default function SuperAdminCriteria() {
                 <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
                   <input
                     type="checkbox"
-                    checked={criteriaForm.edu_status_req.includes(option.id)}
+                    checked={(criteriaForm.edu_status_req || []).includes(option.id)}
                     onChange={(e) => {
                       const isChecked = e.target.checked;
                       setCriteriaForm(prev => {
-                        const currentReqs = prev.edu_status_req;
+                        const currentReqs = prev.edu_status_req || [];
                         return { ...prev, edu_status_req: isChecked ? [...currentReqs, option.id] : currentReqs.filter(item => item !== option.id) };
                       });
                     }}
@@ -278,7 +409,7 @@ export default function SuperAdminCriteria() {
                 </label>
               ))}
             </div>
-            {!criteriaForm.edu_status_req.some(req => ["high-school", "vocational", "high-vocational"].includes(req)) && (
+            {!(criteriaForm.edu_status_req || []).some(req => ["high-school", "vocational", "high-vocational"].includes(req)) && (
               <p className="mt-1 text-xs text-red-500">กรุณาเลือกวุฒิการศึกษาอย่างน้อย 1 รายการ</p>
             )}
           </div>
@@ -306,7 +437,7 @@ export default function SuperAdminCriteria() {
                       </select>
                     </div>
                     <div className="w-full sm:w-32">
-                      <input type="number" step="0.01" min="0" placeholder="ขั้นต่ำ (ถ้ามี)" value={sub.min_score} onChange={(e) => updateSubjectRow(index, "min_score", e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
+                      <input type="number" step="0.01" min="0" max="100" placeholder="ขั้นต่ำ (ถ้ามี)" value={sub.min_score} onChange={(e) => updateSubjectRow(index, "min_score", e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
                     </div>
                     <div className="w-full sm:w-32 flex items-center gap-2">
                       <input type="number" step="0.01" min="0" max="100" placeholder="ค่าน้ำหนัก %" value={sub.weight} onChange={(e) => updateSubjectRow(index, "weight", e.target.value)} className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary" />
@@ -354,11 +485,48 @@ export default function SuperAdminCriteria() {
             </div>
           </div>
 
-          <button type="submit" disabled={criteriaLoading} className="mt-6 w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-all disabled:opacity-50">
-            {criteriaLoading ? "กำลังบันทึก..." : "เพิ่มเกณฑ์การรับสมัคร"}
+          <button type="submit" disabled={criteriaLoading} className={`mt-6 w-full rounded-md px-4 py-2 text-sm font-medium text-white transition-all disabled:opacity-50 ${editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-primary hover:bg-primary/90'}`}>
+            {criteriaLoading ? "กำลังบันทึก..." : editingId ? "บันทึกการแก้ไข" : "เพิ่มเกณฑ์การรับสมัคร"}
           </button>
         </form>
       </div>
+
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-xl font-bold text-foreground mb-4">เกณฑ์การรับสมัครปัจจุบัน</h2>
+        {criteriaList.length === 0 ? (
+          <p className="text-sm text-muted-foreground">ยังไม่มีข้อมูลเกณฑ์รับสมัคร</p>
+        ) : (
+          <div className="space-y-3">
+            {criteriaList.map((crit) => (
+              <div key={crit.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between border border-border rounded-lg p-4 bg-background">
+                <div className="mb-3 sm:mb-0">
+                  <h3 className="font-semibold text-foreground">
+                    รอบที่ {crit.tcas_round} ปี {crit.academic_year} (รับ {crit.max_seats} คน)
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    GPAX ขั้นต่ำ: {crit.min_gpax} | เปิดรับสมัคร: {new Date(crit.start_date).toLocaleDateString('th-TH')} - {new Date(crit.end_date).toLocaleDateString('th-TH')}
+                  </p>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button 
+                    onClick={() => handleEdit(crit)} 
+                    className="flex-1 sm:flex-none flex justify-center items-center gap-1 rounded bg-amber-100 text-amber-700 px-3 py-1.5 text-sm font-medium hover:bg-amber-200 transition-colors"
+                  >
+                    <Pencil className="h-4 w-4" /> แก้ไข
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(crit.id)} 
+                    className="flex-1 sm:flex-none flex justify-center items-center gap-1 rounded bg-red-100 text-red-700 px-3 py-1.5 text-sm font-medium hover:bg-red-200 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" /> ลบ
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

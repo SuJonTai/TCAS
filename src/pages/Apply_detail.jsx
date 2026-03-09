@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Link, useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
@@ -9,7 +9,8 @@ import {
   XCircle,
   Award,
   FileCheck,
-  CheckCircle2
+  CheckCircle2,
+  Calculator
 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
@@ -34,14 +35,10 @@ function formatEduStatus(status) {
 
 function formatEducationType(type) {
   switch (type) {
-    case "high-school":
-      return "ม.6"
-    case "vocational":
-      return "ปวช."
-    case "high-vocational":
-      return "ปวส."
-    default:
-      return type || "-"
+    case "high-school": return "ม.6"
+    case "vocational": return "ปวช."
+    case "high-vocational": return "ปวส."
+    default: return type || "-"
   }
 }
 
@@ -87,6 +84,11 @@ export default function ApplicantDetailPage() {
                 dept_name,
                 FACULTIES ( faculty_name )
               )
+            ),
+            CRITERIA_SUBJECTS (
+              subject_id,
+              weight,
+              SUBJECTS ( subject_name )
             )
           )
         `)
@@ -103,9 +105,10 @@ export default function ApplicantDetailPage() {
         setApplicant(data)
         setCurrentStatus(data.status || "pending")
         if (data.user_id) {
+          // ดึงข้อมูลคะแนนของผู้ใช้ โดยระบุ subject_id เพื่อใช้ในการ map กับเกณฑ์
           const { data: scoreData } = await supabase
             .from('USER_SCORES')
-            .select(`score_value, SUBJECTS ( subject_name )`)
+            .select(`subject_id, score_value, SUBJECTS ( subject_name )`)
             .eq('user_id', data.user_id)
           if (scoreData) setScores(scoreData)
         }
@@ -133,6 +136,38 @@ export default function ApplicantDetailPage() {
     }
   }
 
+  // --- Score Calculation Logic ---
+  const scoreCalculation = useMemo(() => {
+    if (!applicant) return { details: [], totalScore: 0 }
+    
+    const criteriaSubjects = applicant.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || []
+    let totalScore = 0
+    
+    // หากมีการคิดค่าน้ำหนักของ GPAX สามารถเพิ่ม logic ตรงนี้ได้ (ตัวอย่างนี้เน้นเฉพาะวิชาสอบ)
+    
+    const details = criteriaSubjects.map(reqSub => {
+      // หาคะแนนดิบของผู้สมัครในวิชานั้นๆ
+      const userScoreObj = scores.find(s => s.subject_id === reqSub.subject_id)
+      const rawScore = userScoreObj ? Number(userScoreObj.score_value) : 0
+      
+      const weight = Number(reqSub.weight || 0)
+      // สูตรคำนวณมาตรฐาน: (คะแนนดิบ * ค่าน้ำหนัก) / 100
+      const weightedScore = (rawScore * weight) / 100
+      
+      totalScore += weightedScore
+
+      return {
+        subjectId: reqSub.subject_id,
+        subjectName: reqSub.SUBJECTS?.subject_name || "ไม่ทราบชื่อวิชา",
+        rawScore,
+        weight,
+        weightedScore
+      }
+    })
+
+    return { details, totalScore }
+  }, [applicant, scores])
+
   if (loading) return <div className="p-12 text-center text-muted-foreground italic font-poppins">กำลังโหลดข้อมูลผู้สมัคร...</div>
   if (!applicant) return <div className="p-12 text-center text-red-500 font-poppins">ไม่พบข้อมูลผู้สมัครนี้</div>
 
@@ -143,7 +178,7 @@ export default function ApplicantDetailPage() {
   const program = criteria.PROGRAMS || {}
   const dept = program.DEPARTMENTS || {}
   const faculty = dept.FACULTIES || {}
-  const project = criteria.ADMISSION_PROJECTS || {} // <-- เตรียมตัวแปร project
+  const project = criteria.ADMISSION_PROJECTS || {} 
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8 font-poppins min-h-screen bg-slate-50/30">
@@ -219,7 +254,6 @@ export default function ApplicantDetailPage() {
               <dt className="text-slate-500 text-xs uppercase tracking-tighter">สาขาวิชา</dt>
               <dd className="font-semibold text-slate-700">{program.prog_name || "-"}</dd>
             </div>
-            {/* 2. แสดงข้อมูลชื่อโครงการตรงนี้ */}
             <div>
               <dt className="text-slate-500 text-xs uppercase tracking-tighter">โครงการ</dt>
               <dd className="font-semibold text-slate-700">{project.project_name || "-"}</dd>
@@ -231,6 +265,53 @@ export default function ApplicantDetailPage() {
             </div>
           </dl>
         </div>
+      </div>
+
+      {/* Scores & Calculation Section */}
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+            <Calculator className="h-5 w-5 text-primary" />
+            การประมวลผลคะแนนคัดเลือก
+          </h3>
+          <div className="bg-primary/10 px-4 py-2 rounded-xl text-right">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">คะแนนรวมสุทธิ</p>
+            <p className="text-2xl font-black text-primary leading-none">{scoreCalculation.totalScore.toFixed(2)}</p>
+          </div>
+        </div>
+
+        {scoreCalculation.details.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/50">
+                  <th className="p-3 font-semibold text-slate-500">วิชาที่ใช้คัดเลือก</th>
+                  <th className="p-3 font-semibold text-slate-500 text-center">คะแนนดิบที่ได้</th>
+                  <th className="p-3 font-semibold text-slate-500 text-center">ค่าน้ำหนัก (%)</th>
+                  <th className="p-3 font-semibold text-slate-800 text-right">คะแนนที่คำนวณได้</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scoreCalculation.details.map((subject) => (
+                  <tr key={subject.subjectId} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-medium text-slate-700">{subject.subjectName}</td>
+                    <td className="p-3 text-center">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-md font-semibold">
+                        {subject.rawScore.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center text-slate-500">{subject.weight}%</td>
+                    <td className="p-3 text-right font-bold text-slate-800">{subject.weightedScore.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-sm text-slate-400 bg-slate-50/50 rounded-xl border border-dashed">
+            ไม่มีการกำหนดเกณฑ์รายวิชาในโครงการนี้
+          </div>
+        )}
       </div>
 
       {/* Document Section */}
@@ -264,28 +345,6 @@ export default function ApplicantDetailPage() {
             </a>
           ) : <div className="p-4 border border-dashed rounded-xl text-xs text-slate-400 text-center">ไม่มีไฟล์ Transcript</div>}
         </div>
-      </div>
-
-      {/* Scores Section */}
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="mb-4 font-bold text-lg text-slate-800 flex items-center gap-2">
-          <Award className="h-5 w-5 text-primary" />
-          ผลคะแนนสอบแยกวิชา
-        </h3>
-        {scores.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-            {scores.map((score, index) => (
-              <div key={index} className="flex flex-col p-3 rounded-xl bg-slate-50 border border-slate-100">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">{score.SUBJECTS?.subject_name}</span>
-                <span className="text-lg font-black text-slate-700">{Number(score.score_value).toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-10 text-sm text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed">
-            ไม่พบข้อมูลคะแนนสอบในระบบ
-          </div>
-        )}
       </div>
 
       {/* Sticky Action Footer */}
