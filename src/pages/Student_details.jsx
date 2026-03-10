@@ -285,7 +285,7 @@ export default function StudentScores() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8 font-poppins mt-10">
       
-      {/* --- NEW: Sent Applications Section --- */}
+      {/* --- Sent Applications Section --- */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -294,7 +294,7 @@ export default function StudentScores() {
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-800">ประวัติการสมัครของคุณ</h2>
-              <p className="text-sm text-gray-500">โครงการที่คุณได้ทำการยื่นสมัครไปแล้ว</p>
+              <p className="text-sm text-gray-500">ติดตามสถานะการตอบรับเข้าศึกษา</p>
             </div>
           </div>
           <div className="text-sm font-semibold bg-gray-50 px-3 py-1 rounded-full text-gray-500">
@@ -307,44 +307,73 @@ export default function StudentScores() {
             {applications.map((app) => {
               const criteria = app.ADMISSION_CRITERIA || {};
               const program = criteria.PROGRAMS || {};
-              const dept = program.DEPARTMENTS || {};
-              const faculty = dept.FACULTIES || {};
-              const project = criteria.ADMISSION_PROJECTS || {};
+              const faculty = program.DEPARTMENTS?.FACULTIES || {};
+              
+              // Determine if the application is "locked" (Staff already decided)
+              const isLocked = app.status === "approved" || app.status === "rejected";
 
               return (
-                <div key={app.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-md transition-all gap-4">
+                <div key={app.id} className="group relative flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-md transition-all gap-4">
                   <div className="space-y-1 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
                       <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-md">
                         TCAS รอบ {criteria.tcas_round || "-"}
                       </span>
+                      {/* Using the status directly from the APPLICATION table */}
                       <StatusBadge status={app.status} />
                     </div>
-                    <h3 className="font-bold text-gray-800 text-sm">{faculty.faculty_name || "ไม่ทราบคณะ"}</h3>
-                    <p className="text-sm text-gray-600 font-medium">{program.prog_name || "ไม่ทราบสาขา"}</p>
-                    <p className="text-xs text-gray-400">โครงการ: {project.project_name || "-"}</p>
-                    <div className="flex items-center gap-1 text-[10px] text-gray-400 mt-2">
-                      <Calendar size={12} />
-                      {new Date(app.application_date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    
+                    <h3 className="font-bold text-gray-800 text-base">
+                      {faculty.faculty_name || "คณะเทคโนโลยีสารสนเทศ"}
+                    </h3>
+                    <p className="text-sm text-gray-600 font-medium">
+                      {program.prog_name || "สาขาวิชาของคุณ"}
+                    </p>
+                    
+                    <div className="flex items-center gap-3 mt-3">
+                      <div className="flex items-center gap-1 text-[11px] text-gray-400">
+                        <Calendar size={12} />
+                        สมัครเมื่อ: {new Date(app.application_date).toLocaleDateString('th-TH')}
+                      </div>
+                      <div className="flex items-center gap-1 text-[11px] text-gray-400">
+                        <Fingerprint size={12} />
+                        Ref ID: {app.id.toString().slice(0, 8)}
+                      </div>
                     </div>
                   </div>
                   
-                  <div>
+                  <div className="flex flex-col gap-2">
                     <button
                       type="button"
+                      disabled={isLocked}
                       onClick={() => setAppToDelete(app.id)}
-                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                      className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all
+                        ${isLocked 
+                          ? "bg-gray-100 text-gray-300 cursor-not-allowed" 
+                          : "text-red-600 bg-red-50 hover:bg-red-100 shadow-sm hover:shadow"
+                        }`}
                     >
-                      <Trash2 size={16} /> ยกเลิกการสมัคร
+                      <Trash2 size={14} /> 
+                      {isLocked ? "ไม่สามารถยกเลิกได้" : "ยกเลิกการสมัคร"}
                     </button>
+                    
+                    {isLocked && (
+                      <p className="text-[10px] text-center text-gray-400 italic">
+                        * ผลการพิจารณาสิ้นสุดแล้ว
+                      </p>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
         ) : (
-          <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-            <p className="text-gray-400 text-sm">คุณยังไม่มีประวัติการสมัครในระบบ</p>
+          <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+            <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm">
+              <FileText className="text-gray-300" size={24} />
+            </div>
+            <p className="text-gray-500 font-medium">คุณยังไม่มีประวัติการสมัครในระบบ</p>
+            <p className="text-xs text-gray-400 mt-1">เริ่มสมัครโครงการต่างๆ ได้ที่หน้าแรก</p>
           </div>
         )}
       </div>

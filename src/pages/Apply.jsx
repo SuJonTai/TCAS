@@ -151,24 +151,39 @@ export default function Apply() {
 
     try {
       const userId = localStorage.getItem("user_id");
+      if (!userId) throw new Error("ไม่พบข้อมูลผู้ใช้งาน กรุณาล็อกอินใหม่");
       if (!userProfile?.gpax_5_term) throw new Error("กรุณาระบุ GPAX ในหน้าข้อมูลการศึกษาก่อนสมัคร");
-      if (!transcriptFile) throw new Error("กรุณาอัปโหลดไฟล์ระเบียนแสดงผลการเรียน (Transcript)");
+      if (!transcriptFile) throw new Error("กรุณาอัปโหลดไฟล์ Transcript (PDF)");
 
-      // Find the exact criteria ID matching the selections
+      // 1. Identify the exact Criteria
       const matchingCriteria = criteriaDB.find(
         (c) => c.tcas_round?.toString() === selectedRound && 
                c.program_id?.toString() === selectedProgram &&
                c.project_id?.toString() === selectedProject
       );
 
-      if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่ตรงกับข้อมูลที่เลือก");
+      if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่เลือก");
 
-      // Upload both files
+      // 2. PRE-CHECK: Prevent 409 Conflict before it happens
+      const { data: existingApp, error: checkError } = await supabase
+        .from('APPLICATION')
+        .select('id')
+        .eq('user_id', parseInt(userId))
+        .eq('criteria_id', matchingCriteria.id)
+        .maybeSingle(); // Returns null if no record exists
+
+      if (checkError) throw checkError;
+      if (existingApp) {
+        throw new Error("คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว");
+      }
+
+      // 3. Upload Files (Only if the application is new)
       const [portfolioUrl, transcriptUrl] = await Promise.all([
         uploadFile(portfolioFile, 'portfolios'),
         uploadFile(transcriptFile, 'transcripts')
       ]);
 
+      // 4. Final Insert
       const { error: insertError } = await supabase
         .from('APPLICATION')
         .insert([{
@@ -180,7 +195,12 @@ export default function Apply() {
           transcript_url: transcriptUrl 
         }]);
 
-      if (insertError) throw insertError;
+      // Final catch for race conditions (Postgres Error 23505 = Unique Violation)
+      if (insertError) {
+        if (insertError.code === '23505') throw new Error("คุณได้สมัครสาขานี้ไปแล้ว");
+        throw insertError;
+      }
+
       setShowSuccess(true);
     } catch (err) {
       setErrorMessage(err.message);
