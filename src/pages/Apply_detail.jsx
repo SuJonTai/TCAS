@@ -64,7 +64,6 @@ export default function ApplicantDetailPage() {
           user_id, 
           status,
           gpax,
-          high_school,
           portfolio_url,
           transcript_url,
           USERS ( 
@@ -73,6 +72,7 @@ export default function ApplicantDetailPage() {
             citizen_id,
             edu_status,
             current_level,
+            high_school,
             STUDY_PLANS ( plan_name, plan_group ) 
           ),
           ADMISSION_CRITERIA (
@@ -214,7 +214,7 @@ export default function ApplicantDetailPage() {
           <dl className="space-y-4 text-sm">
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">สถานศึกษาเดิม</dt>
-              <dd className="font-semibold text-slate-700">{applicant.high_school || "-"}</dd>
+              <dd className="font-semibold text-slate-700">{user.high_school || "-"}</dd>
             </div>
             <div className="flex justify-between border-b border-slate-50 pb-2">
               <dt className="text-slate-500">ระดับชั้น/วุฒิการศึกษา</dt>

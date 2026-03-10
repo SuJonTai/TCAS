@@ -19,7 +19,6 @@ export default function Apply() {
   const [selectedProject, setSelectedProject] = useState(""); // Stores project_id
   const [selectedFaculty, setSelectedFaculty] = useState("");
   const [selectedProgram, setSelectedProgram] = useState(""); 
-  const [schoolName, setSchoolName] = useState("");
   
   // --- File States ---
   const [portfolioFile, setPortfolioFile] = useState(null);
@@ -33,8 +32,6 @@ export default function Apply() {
   useEffect(() => {
     const fetchData = async () => {
       const userId = localStorage.getItem("user_id");
-      const savedSchool = localStorage.getItem("user_high_school");
-      if (savedSchool) setSchoolName(savedSchool);
 
       if (!userId) return;
 
@@ -177,7 +174,6 @@ export default function Apply() {
         .insert([{
           user_id: parseInt(userId),
           criteria_id: matchingCriteria.id,
-          high_school: schoolName,
           gpax: userProfile.gpax_5_term,
           status: 'pending',
           portfolio_url: portfolioUrl,
@@ -207,21 +203,6 @@ export default function Apply() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6 font-poppins">
-          <div>
-            <label className="block text-sm font-semibold mb-1">โรงเรียนที่จบการศึกษา</label>
-            <div className="relative">
-              <School className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <input 
-                type="text" 
-                className="w-full pl-10 p-2 border rounded-lg focus:ring-2 focus:ring-primary/20 outline-none"
-                placeholder="ระบุชื่อโรงเรียน"
-                value={schoolName}
-                onChange={(e) => setSchoolName(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             
             {/* 1. ROUND */}

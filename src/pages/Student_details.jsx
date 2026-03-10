@@ -60,7 +60,7 @@ export default function StudentScores() {
         // Fetch User Education Data
         const { data: userData } = await supabase
           .from("USERS")
-          .select("edu_status, current_level, gpax_5_term, plan_id")
+          .select("edu_status, current_level, gpax_5_term, plan_id, high_school")
           .eq("id", userId)
           .single();
         
@@ -69,7 +69,7 @@ export default function StudentScores() {
           const detectedType = userPlan ? userPlan.plan_group : "";
 
           setFormData({
-            high_school: localStorage.getItem("user_high_school") || "",
+            high_school: userData.high_school || "",
             edu_status: userData.edu_status || "",
             edu_type: detectedType,
             current_level: 12,
@@ -183,7 +183,6 @@ export default function StudentScores() {
     const userId = localStorage.getItem("user_id");
 
     try {
-      localStorage.setItem("user_high_school", formData.high_school);
       let finalPlanId = formData.plan_id;
 
       if (formData.plan_id === "other" && formData.other_plan.trim() !== "") {
@@ -212,6 +211,7 @@ export default function StudentScores() {
       }
 
       const updateData = {
+        high_school: formData.high_school,
         edu_status: formData.edu_status,
         current_level: 12,
         gpax_5_term: parseFloat(formData.gpax_5_term),
