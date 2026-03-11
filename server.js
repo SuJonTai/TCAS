@@ -36,8 +36,8 @@ let supabase = null;
 
 if (!supabaseUrl || !supabaseKey) {
     console.error("⚠️ Warning: Missing Supabase Configuration");
-    if(!supabaseUrl) console.error("- Missing: SUPABASE_URL");
-    if(!supabaseKey) console.error("- Missing: SUPABASE_KEY (Anon Key)");
+    if (!supabaseUrl) console.error("- Missing: SUPABASE_URL");
+    if (!supabaseKey) console.error("- Missing: SUPABASE_KEY (Anon Key)");
 } else {
     supabase = createClient(supabaseUrl, supabaseKey);
     console.log("✅ Successfully initialized Supabase client");
@@ -220,7 +220,7 @@ app.get('/api/programs/:id', async (req, res) => {
                 DEPARTMENTS: row.DEPARTMENTS ? JSON.parse(row.DEPARTMENTS) : null,
                 ADMISSION_CRITERIA: row.ADMISSION_CRITERIA ? JSON.parse(row.ADMISSION_CRITERIA).map(crit => ({
                     ...crit,
-                    edu_status_req: crit.edu_status_req ? JSON.parse(crit.edu_status_req) : [] 
+                    edu_status_req: crit.edu_status_req ? JSON.parse(crit.edu_status_req) : []
                 })) : []
             };
 
@@ -708,7 +708,7 @@ app.get('/api/faculties', async (req, res) => {
                 FROM FACULTIES f
                 LEFT JOIN DEPARTMENTS d ON f.id = d.faculty_id
             `;
-            
+
             // แปลง Flat Data เป็น Nested JSON
             const nested = [];
             const map = new Map();
@@ -784,7 +784,7 @@ app.post('/api/admission-projects', async (req, res) => {
 
 app.get('/api/criteria', async (req, res) => {
     // อ่านค่าประเภท DB จาก Header ที่ส่งมาจาก apiService.js
-    const dbType = req.headers['x-db-type'] || 'supabase'; 
+    const dbType = req.headers['x-db-type'] || 'supabase';
 
     try {
         if (dbType === 'supabase') {
@@ -826,7 +826,7 @@ app.get('/api/criteria', async (req, res) => {
                 CRITERIA_PLANS: row.CRITERIA_PLANS ? JSON.parse(row.CRITERIA_PLANS) : [],
                 CRITERIA_SUBJECTS: row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : []
             }));
-            
+
             res.json(data);
         } else {
             res.status(400).json({ error: 'Invalid database type' });
@@ -890,7 +890,7 @@ app.get('/api/study-plans', async (req, res) => {
 app.post('/api/criteria', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { criteria, study_plans, subjects } = req.body;
-    
+
     try {
         if (useSupabase) {
             // 1. Insert Criteria
@@ -900,23 +900,23 @@ app.post('/api/criteria', async (req, res) => {
                 .select()
                 .single();
             if (critErr) throw critErr;
-            
+
             const newId = critData.id;
-            
+
             // 2. Insert Plans
             if (study_plans && study_plans.length > 0) {
                 const plansToInsert = study_plans.map(plan_id => ({ criteria_id: newId, plan_id }));
                 await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
             }
-            
+
             // 3. Insert Subjects
             if (subjects && subjects.length > 0) {
-                const subsToInsert = subjects.map(s => ({ 
-                    criteria_id: newId, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight 
+                const subsToInsert = subjects.map(s => ({
+                    criteria_id: newId, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight
                 }));
                 await supabase.from('CRITERIA_SUBJECTS').insert(subsToInsert);
             }
-            
+
             res.status(201).json({ message: "Created successfully", id: newId });
         } else {
             // SQL Server Logic
@@ -929,7 +929,7 @@ app.post('/api/criteria', async (req, res) => {
                 (${criteria.academic_year}, ${criteria.tcas_round}, ${criteria.max_seats}, ${criteria.min_gpax}, ${eduStatusStr}, ${criteria.project_id}, ${criteria.program_id}, ${criteria.start_date}, ${criteria.end_date})
             `;
             const newId = result.recordset[0].id;
-            
+
             if (study_plans && study_plans.length > 0) {
                 for (let plan_id of study_plans) {
                     await sql.query`INSERT INTO CRITERIA_PLANS (criteria_id, plan_id) VALUES (${newId}, ${plan_id})`;
@@ -953,24 +953,24 @@ app.put('/api/criteria/:id', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { id } = req.params;
     const { criteria, study_plans, subjects } = req.body;
-    
+
     try {
         if (useSupabase) {
             const { error: critErr } = await supabase.from('ADMISSION_CRITERIA').update(criteria).eq('id', id);
             if (critErr) throw critErr;
-            
+
             // ลบของเก่าออก
             await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', id);
             await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', id);
-            
+
             // แอดของใหม่เข้าไป
             if (study_plans && study_plans.length > 0) {
                 const plansToInsert = study_plans.map(plan_id => ({ criteria_id: id, plan_id }));
                 await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
             }
             if (subjects && subjects.length > 0) {
-                const subsToInsert = subjects.map(s => ({ 
-                    criteria_id: id, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight 
+                const subsToInsert = subjects.map(s => ({
+                    criteria_id: id, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight
                 }));
                 await supabase.from('CRITERIA_SUBJECTS').insert(subsToInsert);
             }
@@ -990,10 +990,10 @@ app.put('/api/criteria/:id', async (req, res) => {
                     end_date = ${criteria.end_date}
                 WHERE id = ${id}
             `;
-            
+
             await sql.query`DELETE FROM CRITERIA_PLANS WHERE criteria_id = ${id}`;
             await sql.query`DELETE FROM CRITERIA_SUBJECTS WHERE criteria_id = ${id}`;
-            
+
             if (study_plans && study_plans.length > 0) {
                 for (let plan_id of study_plans) {
                     await sql.query`INSERT INTO CRITERIA_PLANS (criteria_id, plan_id) VALUES (${id}, ${plan_id})`;
@@ -1016,7 +1016,7 @@ app.put('/api/criteria/:id', async (req, res) => {
 app.delete('/api/criteria/:id', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { id } = req.params;
-    
+
     try {
         if (useSupabase) {
             const { error } = await supabase.from('ADMISSION_CRITERIA').delete().eq('id', id);
@@ -1041,6 +1041,189 @@ app.delete('/api/criteria/:id', async (req, res) => {
     }
 });
 
+app.get('/api/student/dashboard/:userId', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { userId } = req.params;
+
+    try {
+        if (useSupabase) {
+            const [plansRes, subjectsRes, userRes, scoresRes, appsRes] = await Promise.all([
+                supabase.from("STUDY_PLANS").select("*").order('plan_name', { ascending: true }),
+                supabase.from("SUBJECTS").select("*").order('id', { ascending: true }),
+                supabase.from("USERS").select("edu_status, current_level, gpax_5_term, plan_id, high_school").eq("id", userId).single(),
+                supabase.from("USER_SCORES").select("subject_id, score_value").eq("user_id", userId),
+                supabase.from("APPLICATION").select(`
+                    id, status, application_date,
+                    ADMISSION_CRITERIA (
+                        tcas_round,
+                        ADMISSION_PROJECTS ( project_name ),
+                        PROGRAMS ( prog_name, DEPARTMENTS ( FACULTIES ( faculty_name ) ) )
+                    )
+                `).eq("user_id", userId).order('application_date', { ascending: false })
+            ]);
+
+            return res.json({
+                plans: plansRes.data || [],
+                subjects: subjectsRes.data || [],
+                user: userRes.data || null,
+                scores: scoresRes.data || [],
+                applications: appsRes.data || []
+            });
+        } else {
+            // MS SQL Logic
+            const plans = await sql.query`SELECT * FROM STUDY_PLANS ORDER BY plan_name ASC`;
+            const subjects = await sql.query`SELECT * FROM SUBJECTS ORDER BY id ASC`;
+            const user = await sql.query`SELECT edu_status, current_level, gpax_5_term, plan_id, high_school FROM USERS WHERE id = ${userId}`;
+            const scores = await sql.query`SELECT subject_id, score_value FROM USER_SCORES WHERE user_id = ${userId}`;
+
+            const appsResult = await sql.query`
+                SELECT 
+                    a.id, a.status, a.application_date,
+                    (
+                        SELECT ac.tcas_round,
+                            proj.project_name AS 'ADMISSION_PROJECTS.project_name',
+                            (
+                                SELECT p.prog_name,
+                                    (
+                                        SELECT f.faculty_name AS 'FACULTIES.faculty_name'
+                                        FROM DEPARTMENTS d
+                                        LEFT JOIN FACULTIES f ON f.id = d.faculty_id
+                                        WHERE d.id = p.dept_id
+                                        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                                    ) AS DEPARTMENTS
+                                FROM PROGRAMS p WHERE p.id = ac.program_id
+                                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                            ) AS PROGRAMS
+                        FROM ADMISSION_CRITERIA ac
+                        LEFT JOIN ADMISSION_PROJECTS proj ON proj.id = ac.project_id
+                        WHERE ac.id = a.criteria_id
+                        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                    ) AS ADMISSION_CRITERIA
+                FROM APPLICATION a
+                WHERE a.user_id = ${userId}
+                ORDER BY a.application_date DESC
+            `;
+
+            const apps = appsResult.recordset.map(row => ({
+                ...row,
+                failReasons: row.failReasons ? JSON.parse(row.failReasons) : null,
+                ADMISSION_CRITERIA: row.ADMISSION_CRITERIA ? JSON.parse(row.ADMISSION_CRITERIA) : null
+            }));
+
+            return res.json({
+                plans: plans.recordset,
+                subjects: subjects.recordset,
+                user: user.recordset[0] || null,
+                scores: scores.recordset,
+                applications: apps
+            });
+        }
+    } catch (err) {
+        console.error("Dashboard Fetch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PUT Update Student Profile & Scores ---
+app.put('/api/student/profile/:userId', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { userId } = req.params;
+    const { high_school, edu_status, current_level, gpax_5_term, plan_id, other_plan, edu_type, userScores } = req.body;
+
+    try {
+        let finalPlanId = plan_id;
+
+        if (useSupabase) {
+            // Check custom plan for Supabase
+            if (plan_id === "other" && other_plan) {
+                const { data: existing } = await supabase.from("STUDY_PLANS").select("id").ilike("plan_name", other_plan).eq("plan_group", edu_type).maybeSingle();
+                if (existing) {
+                    finalPlanId = existing.id;
+                } else {
+                    const { data: inserted } = await supabase.from("STUDY_PLANS").insert([{ plan_name: other_plan, plan_group: edu_type }]).select().single();
+                    finalPlanId = inserted.id;
+                }
+            }
+
+            // Update user info
+            await supabase.from("USERS").update({
+                high_school, edu_status, current_level,
+                gpax_5_term: parseFloat(gpax_5_term),
+                plan_id: finalPlanId
+            }).eq("id", userId);
+
+            // Upsert scores
+            const scoreUpserts = Object.keys(userScores)
+                .filter(subId => userScores[subId] !== "" && userScores[subId] !== null)
+                .map(subId => ({
+                    user_id: userId,
+                    subject_id: parseInt(subId),
+                    score_value: parseFloat(userScores[subId])
+                }));
+
+            if (scoreUpserts.length > 0) {
+                await supabase.from("USER_SCORES").upsert(scoreUpserts, { onConflict: 'user_id, subject_id' });
+            }
+
+            return res.json({ message: "Updated Profile", newPlanId: finalPlanId });
+
+        } else {
+            // Check custom plan for MS SQL
+            if (plan_id === "other" && other_plan) {
+                const existing = await sql.query`SELECT id FROM STUDY_PLANS WHERE plan_name = ${other_plan} AND plan_group = ${edu_type}`;
+                if (existing.recordset.length > 0) {
+                    finalPlanId = existing.recordset[0].id;
+                } else {
+                    const inserted = await sql.query`INSERT INTO STUDY_PLANS (plan_name, plan_group) OUTPUT INSERTED.id VALUES (${other_plan}, ${edu_type})`;
+                    finalPlanId = inserted.recordset[0].id;
+                }
+            }
+
+            // Update user info
+            await sql.query`
+                UPDATE USERS 
+                SET high_school = ${high_school}, edu_status = ${edu_status}, 
+                    current_level = ${current_level}, gpax_5_term = ${parseFloat(gpax_5_term)}, plan_id = ${finalPlanId}
+                WHERE id = ${userId}
+            `;
+
+            // Merge / Upsert Scores in MS SQL
+            const subIds = Object.keys(userScores).filter(subId => userScores[subId] !== "" && userScores[subId] !== null);
+            for (const subId of subIds) {
+                const val = parseFloat(userScores[subId]);
+                const check = await sql.query`SELECT subject_id FROM USER_SCORES WHERE user_id = ${userId} AND subject_id = ${subId}`;
+
+                if (check.recordset.length > 0) {
+                    await sql.query`UPDATE USER_SCORES SET score_value = ${val} WHERE user_id = ${userId} AND subject_id = ${subId}`;
+                } else {
+                    await sql.query`INSERT INTO USER_SCORES (user_id, subject_id, score_value) VALUES (${userId}, ${subId}, ${val})`;
+                }
+            }
+
+            return res.json({ message: "Updated Profile", newPlanId: finalPlanId });
+        }
+    } catch (err) {
+        console.error("Profile Update Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- DELETE Applications ---
+app.delete('/api/applications/:appId', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { appId } = req.params;
+
+    try {
+        if (useSupabase) {
+            await supabase.from("APPLICATION").delete().eq("id", appId);
+        } else {
+            await sql.query`DELETE FROM APPLICATION WHERE id = ${appId}`;
+        }
+        res.json({ message: "Deleted application" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);

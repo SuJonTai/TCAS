@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+// นำเข้า Context และ apiFetch แทนการใช้ supabase ตรงๆ
+import { useDatabase } from "@/context/DatabaseContext";
+import { apiFetch } from "@/services/apiService";
 import { 
   Save, GraduationCap, School, BookOpen, Fingerprint, Edit3, 
   Loader2, Award, FileText, Trash2, AlertCircle, X, Calendar
 } from "lucide-react";
 
-// --- Helper Component: Dynamic Status Badge ---
 function StatusBadge({ status }) {
   switch (status) {
     case "approved":
@@ -18,10 +19,11 @@ function StatusBadge({ status }) {
 }
 
 export default function StudentScores() {
+  const { dbType } = useDatabase(); // ดึงประเภท DB
+
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   
-  // Education State
   const [plans, setPlans] = useState([]); 
   const [filteredPlans, setFilteredPlans] = useState([]); 
   const [formData, setFormData] = useState({
@@ -34,92 +36,57 @@ export default function StudentScores() {
     other_plan: ""       
   });
 
-  // TCAS Scores State
   const [subjects, setSubjects] = useState([]);
   const [userScores, setUserScores] = useState({});
   const [scoreErrors, setScoreErrors] = useState({});
 
-  // --- NEW: Applications State ---
   const [applications, setApplications] = useState([]);
-  const [appToDelete, setAppToDelete] = useState(null); // เก็บ ID ของการสมัครที่ต้องการลบ
+  const [appToDelete, setAppToDelete] = useState(null); 
   const [deletingApp, setDeletingApp] = useState(false);
 
-  // 1. Initial Load
   useEffect(() => {
     const loadData = async () => {
       const userId = localStorage.getItem("user_id");
-      
-      // Fetch Plans & Subjects
-      const { data: allPlans } = await supabase.from("STUDY_PLANS").select("*").order('plan_name', { ascending: true });
-      if (allPlans) setPlans(allPlans);
+      if (!userId) return;
 
-      const { data: allSubjects } = await supabase.from("SUBJECTS").select("*").order('id', { ascending: true });
-      if (allSubjects) setSubjects(allSubjects);
-
-      if (userId) {
-        // Fetch User Education Data
-        const { data: userData } = await supabase
-          .from("USERS")
-          .select("edu_status, current_level, gpax_5_term, plan_id, high_school")
-          .eq("id", userId)
-          .single();
+      try {
+        // ยิง API ไปที่ Backend เพื่อดึงข้อมูลรวบยอด
+        const data = await apiFetch(`/api/student/dashboard/${userId}`, dbType);
         
-        if (userData) {
-          const userPlan = allPlans?.find(p => p.id === userData.plan_id);
+        setPlans(data.plans || []);
+        setSubjects(data.subjects || []);
+        setApplications(data.applications || []);
+
+        if (data.user) {
+          const userPlan = (data.plans || []).find(p => p.id === data.user.plan_id);
           const detectedType = userPlan ? userPlan.plan_group : "";
 
           setFormData({
-            high_school: userData.high_school || "",
-            edu_status: userData.edu_status || "",
+            high_school: data.user.high_school || "",
+            edu_status: data.user.edu_status || "",
             edu_type: detectedType,
             current_level: 12,
-            gpax_5_term: userData.gpax_5_term || "",
-            plan_id: userData.plan_id || "",
+            gpax_5_term: data.user.gpax_5_term || "",
+            plan_id: data.user.plan_id || "",
             other_plan: ""
           });
         }
 
-        // Fetch User's Existing Scores
-        const { data: scoresData } = await supabase
-          .from("USER_SCORES")
-          .select("subject_id, score_value")
-          .eq("user_id", userId);
-        
-        if (scoresData) {
+        if (data.scores) {
           const scoreMap = {};
-          scoresData.forEach(item => { scoreMap[item.subject_id] = item.score_value; });
+          data.scores.forEach(item => { scoreMap[item.subject_id] = item.score_value; });
           setUserScores(scoreMap);
         }
 
-        // --- NEW: Fetch Sent Applications ---
-        const { data: appData } = await supabase
-          .from("APPLICATION")
-          .select(`
-            id,
-            status,
-            application_date,
-            ADMISSION_CRITERIA (
-              tcas_round,
-              ADMISSION_PROJECTS ( project_name ),
-              PROGRAMS (
-                prog_name,
-                DEPARTMENTS (
-                  FACULTIES ( faculty_name )
-                )
-              )
-            )
-          `)
-          .eq("user_id", userId)
-          .order('application_date', { ascending: false });
-
-        if (appData) setApplications(appData);
+      } catch (error) {
+        console.error("Failed to load dashboard data", error);
+      } finally {
+        setInitialLoading(false);
       }
-      setInitialLoading(false);
     };
     loadData();
-  }, []);
+  }, [dbType]);
 
-  // 2. Filter plans dropdown
   useEffect(() => {
     if (formData.edu_type) {
       setFilteredPlans(plans.filter(p => p.plan_group === formData.edu_type));
@@ -132,7 +99,6 @@ export default function StudentScores() {
     setFormData(prev => ({ ...prev, edu_type: type, plan_id: "", other_plan: "" }));
   };
 
-  // Restrict scores
   const handleScoreChange = (subjectId, value) => {
     let finalValue = value;
     let newErrors = { ...scoreErrors };
@@ -166,102 +132,45 @@ export default function StudentScores() {
     }
   };
 
-  // 3. Save Profile
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    if (!formData.edu_type) {
-      alert("กรุณาเลือก 'ประเภทการศึกษา' (ม.6, ปวช., ปวส.) ให้เรียบร้อยก่อนครับ");
-      return;
-    }
-    
-    if (!formData.edu_status) {
-      alert("กรุณาเลือก 'สถานะปัจจุบัน' (กำลังศึกษา, สำเร็จการศึกษา) ให้เรียบร้อยก่อนครับ");
-      return;
-    }
+    if (!formData.edu_type) return alert("กรุณาเลือก 'ประเภทการศึกษา' ให้เรียบร้อยก่อนครับ");
+    if (!formData.edu_status) return alert("กรุณาเลือก 'สถานะปัจจุบัน' ให้เรียบร้อยก่อนครับ");
 
     setLoading(true);
     const userId = localStorage.getItem("user_id");
 
     try {
-      let finalPlanId = formData.plan_id;
+      // ส่งข้อมูลให้ Backend จัดการอัปเดต Profile, สร้างแผนการเรียนใหม่(ถ้ามี) และอัปเดตคะแนน
+      const payload = { ...formData, userScores };
+      const response = await apiFetch(`/api/student/profile/${userId}`, dbType, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
 
-      if (formData.plan_id === "other" && formData.other_plan.trim() !== "") {
-        const newPlanName = formData.other_plan.trim();
-        const { data: existingPlan } = await supabase
-          .from("STUDY_PLANS")
-          .select("id")
-          .ilike("plan_name", newPlanName)
-          .eq("plan_group", formData.edu_type)
-          .maybeSingle();
-
-        if (existingPlan) {
-          finalPlanId = existingPlan.id;
-        } else {
-          const { data: insertedPlan, error: insertError } = await supabase
-            .from("STUDY_PLANS")
-            .insert([{ plan_name: newPlanName, plan_group: formData.edu_type }])
-            .select()
-            .single();
-
-          if (insertError) throw insertError;
-          finalPlanId = insertedPlan.id;
-          setPlans(prev => [...prev, insertedPlan]);
-        }
-        setFormData(prev => ({ ...prev, plan_id: finalPlanId, other_plan: "" }));
-      }
-
-      const updateData = {
-        high_school: formData.high_school,
-        edu_status: formData.edu_status,
-        current_level: 12,
-        gpax_5_term: parseFloat(formData.gpax_5_term),
-        plan_id: finalPlanId
-      };
-
-      const { error: userError } = await supabase.from("USERS").update(updateData).eq("id", userId);
-      if (userError) throw userError;
-
-      const scoreUpserts = Object.keys(userScores)
-        .filter(subjectId => userScores[subjectId] !== "" && userScores[subjectId] !== null)
-        .map(subjectId => ({
-          user_id: userId,
-          subject_id: subjectId,
-          score_value: parseFloat(userScores[subjectId])
-        }));
-
-      if (scoreUpserts.length > 0) {
-        const { error: scoreError } = await supabase
-          .from("USER_SCORES")
-          .upsert(scoreUpserts, { onConflict: 'user_id, subject_id' });
-        
-        if (scoreError) throw scoreError;
+      if (formData.plan_id === "other" && response.newPlanId) {
+        setFormData(prev => ({ ...prev, plan_id: response.newPlanId, other_plan: "" }));
+        // รีโหลดแผนการเรียน
+        const updatedPlans = await apiFetch(`/api/study-plans`, dbType);
+        setPlans(updatedPlans);
       }
 
       alert("บันทึกข้อมูลสำเร็จ! ระบบได้ปรับปรุงข้อมูลการศึกษาและคะแนนของคุณแล้ว");
     } catch (err) {
-      console.error("Supabase Error Object:", err); // เพิ่มบรรทัดนี้
       alert("เกิดข้อผิดพลาด: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- NEW: Delete Application Logic ---
   const handleDeleteApplication = async () => {
     if (!appToDelete) return;
     setDeletingApp(true);
     
     try {
-      const { error } = await supabase
-        .from("APPLICATION")
-        .delete()
-        .eq("id", appToDelete);
-
-      if (error) throw error;
-
-      // Update state to remove deleted app
+      await apiFetch(`/api/applications/${appToDelete}`, dbType, { method: "DELETE" });
       setApplications(prev => prev.filter(app => app.id !== appToDelete));
-      setAppToDelete(null); // Close modal
+      setAppToDelete(null); 
     } catch (err) {
       alert("เกิดข้อผิดพลาดในการยกเลิกการสมัคร: " + err.message);
     } finally {
@@ -282,6 +191,7 @@ export default function StudentScores() {
   const tpatSubjects = subjects.filter(s => s.subject_type === 'TPAT');
   const alevelSubjects = subjects.filter(s => s.subject_type === 'A-Level');
 
+  // ... (ส่วน HTML ด้านล่างเหมือนเดิมทั้งหมด ไม่มีการเปลี่ยนแปลง) ...
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8 font-poppins mt-10">
       
