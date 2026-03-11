@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { ArrowLeft, Filter, FileDown, Users, Loader2, CheckCircle2, XCircle, Trash2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 import { jsPDF } from "jspdf"
 import { toPng } from "html-to-image"
+
+// 👈 นำเข้า Context และ API Fetch
+import { useDatabase } from "@/context/DatabaseContext"
+import { apiFetch } from "@/services/apiService"
 
 // --- Helper Component: Dynamic Status Badge ---
 function StatusBadge({ status }) {
@@ -19,8 +22,9 @@ function StatusBadge({ status }) {
 
 // --- Main Component: Applicant Results Table ---
 export default function ApplicantListTable() {
+  const { dbType } = useDatabase() // 👈 ดึง dbType
   const [searchParams] = useSearchParams()
-  const [rawData, setRawData] = useState([]) // เก็บข้อมูลดิบทั้งหมดจาก DB
+  const [rawData, setRawData] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   
@@ -33,181 +37,149 @@ export default function ApplicantListTable() {
   const fetchApplicants = async () => {
     setLoading(true)
 
-    // ดึงข้อมูล (หากตาราง CRITERIA_SUBJECTS มี column weight ให้เพิ่ม weight ลงไปใน Select ด้วย)
-    let query = supabase.from('APPLICATION').select(`
-      id,
-      status,
-      gpax,
-      USERS ( 
-        first_name, 
-        last_name, 
-        edu_status, 
-        current_level,
-        plan_id,
-        STUDY_PLANS ( plan_name, plan_group ),
-        USER_SCORES ( subject_id, score_value )
-      ),
-      ADMISSION_CRITERIA!inner (
-        tcas_round,
-        program_id,
-        min_gpax,
-        edu_status_req,
-        min_level,
-        max_level,
-        CRITERIA_SUBJECTS ( subject_id, min_score, SUBJECTS ( subject_name ) ),
-        PROGRAMS!inner (
-          prog_name,
-          DEPARTMENTS!inner (
-            faculty_id,
-            FACULTIES ( faculty_name )
-          )
-        )
-      )
-    `)
+    try {
+      // 👈 สร้าง Query String เพื่อส่งให้ Backend
+      const params = new URLSearchParams();
+      if (roundFilter) params.append("round", roundFilter);
+      if (facultyFilter) params.append("faculty_id", facultyFilter);
+      if (programFilter) params.append("program_id", programFilter);
 
-    if (roundFilter) query = query.eq('ADMISSION_CRITERIA.tcas_round', parseInt(roundFilter, 10))
-    if (programFilter) query = query.eq('ADMISSION_CRITERIA.program_id', parseInt(programFilter, 10))
-    if (facultyFilter) query = query.eq('ADMISSION_CRITERIA.PROGRAMS.DEPARTMENTS.faculty_id', parseInt(facultyFilter, 10))
+      // 👈 ยิง API ไปที่ Backend ของเรา
+      const data = await apiFetch(`/api/staff/applicants?${params.toString()}`, dbType);
 
-    const { data, error } = await query
-
-    if (!error && data) {
-      let formattedData = data.map(app => {
-        const criteria = app.ADMISSION_CRITERIA || {}
-        const user = app.USERS || {}
-        const userScores = user.USER_SCORES || []
-        const requiredSubjects = criteria.CRITERIA_SUBJECTS || []
-        
-        const failReasons = []
-
-        // 1. ตรวจสอบ GPAX
-        const passGpax = (app.gpax || 0) >= (criteria.min_gpax || 0)
-        if (!passGpax) failReasons.push("GPAX ไม่ถึงเกณฑ์")
-        
-        // 2. ตรวจสอบสถานะ วุฒิ และ "แผนการเรียน"
-        let rawReqs = criteria.edu_status_req;
-        let reqs = [];
-        if (Array.isArray(rawReqs)) {
-          reqs = rawReqs; 
-        } else if (typeof rawReqs === 'string') {
-          try { reqs = JSON.parse(rawReqs); } 
-          catch (e) { reqs = rawReqs.split(',').map(item => item.trim()); }
-        }
-        if (!Array.isArray(reqs)) reqs = rawReqs ? [rawReqs] : [];
-
-        const validStatuses = ["studying", "graduated"];
-        const validTypes = ["high-school", "vocational", "high-vocational"];
-
-        const requiredStatuses = reqs.filter(r => validStatuses.includes(r));
-        const requiredTypes = reqs.filter(r => validTypes.includes(r));
-        
-        let rawUserEdu = user.edu_status;
-        let userEduData = [];
-        if (Array.isArray(rawUserEdu)) {
-          userEduData = rawUserEdu;
-        } else if (typeof rawUserEdu === 'string') {
-          try { userEduData = JSON.parse(rawUserEdu); } 
-          catch (e) { userEduData = rawUserEdu.split(',').map(item => item.trim()); }
-        }
-        if (!Array.isArray(userEduData)) userEduData = rawUserEdu ? [rawUserEdu] : [];
-
-        const planName = user.STUDY_PLANS?.plan_name || "";
-        const dbPlanGroup = user.STUDY_PLANS?.plan_group || ""; 
-        let inferredPlanGroup = "";
-
-        if (planName.includes("ปวช") || planName.includes("เตรียมวิศว")) {
-          inferredPlanGroup = "vocational";
-        } else if (planName.includes("ปวส")) {
-          inferredPlanGroup = "high-vocational";
-        } else if (planName) {
-          inferredPlanGroup = "high-school"; 
-        }
-
-        const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.some(status => userEduData.includes(status));
-        const passEduType = requiredTypes.length === 0 || 
-                            requiredTypes.includes(dbPlanGroup) || 
-                            requiredTypes.includes(inferredPlanGroup);
-
-        if (!passEduStatus) failReasons.push("สถานะการศึกษาไม่ตรงเกณฑ์");
-        if (!passEduType) failReasons.push(`วุฒิการศึกษาไม่ตรงเกณฑ์`);
-
-        // 3. ตรวจสอบระดับชั้น
-        const userLevel = user.current_level || 0
-        const minLevel = criteria.min_level || 0
-        const maxLevel = criteria.max_level || 99
-        const passLevel = userLevel >= minLevel && userLevel <= maxLevel
-        if (!passLevel) failReasons.push("ระดับชั้นไม่ตรงเกณฑ์")
-
-        // 4. ตรวจสอบคะแนน TCAS และ คำนวณคะแนนรวม
-        let passScores = true
-        let totalScore = 0 // ตัวแปรเก็บคะแนนรวม
-        
-        requiredSubjects.forEach(reqSub => {
-          const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id)
+      if (data) {
+        let formattedData = data.map(app => {
+          const criteria = app.ADMISSION_CRITERIA || {}
+          const user = app.USERS || {}
+          const userScores = user.USER_SCORES || []
+          const requiredSubjects = criteria.CRITERIA_SUBJECTS || []
           
-          if (!userSubScore || userSubScore.score_value == null) {
-            passScores = false
-            failReasons.push(`ไม่ได้กรอกคะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'}`)
-          } else {
-            const scoreValue = parseFloat(userSubScore.score_value) || 0;
+          const failReasons = []
+
+          // 1. ตรวจสอบ GPAX
+          const passGpax = (app.gpax || 0) >= (criteria.min_gpax || 0)
+          if (!passGpax) failReasons.push("GPAX ไม่ถึงเกณฑ์")
+          
+          // 2. ตรวจสอบสถานะ วุฒิ และ "แผนการเรียน"
+          let rawReqs = criteria.edu_status_req;
+          let reqs = [];
+          if (Array.isArray(rawReqs)) {
+            reqs = rawReqs; 
+          } else if (typeof rawReqs === 'string') {
+            try { reqs = JSON.parse(rawReqs); } 
+            catch (e) { reqs = rawReqs.split(',').map(item => item.trim()); }
+          }
+          if (!Array.isArray(reqs)) reqs = rawReqs ? [rawReqs] : [];
+
+          const validStatuses = ["studying", "graduated"];
+          const validTypes = ["high-school", "vocational", "high-vocational"];
+
+          const requiredStatuses = reqs.filter(r => validStatuses.includes(r));
+          const requiredTypes = reqs.filter(r => validTypes.includes(r));
+          
+          let rawUserEdu = user.edu_status;
+          let userEduData = [];
+          if (Array.isArray(rawUserEdu)) {
+            userEduData = rawUserEdu;
+          } else if (typeof rawUserEdu === 'string') {
+            try { userEduData = JSON.parse(rawUserEdu); } 
+            catch (e) { userEduData = rawUserEdu.split(',').map(item => item.trim()); }
+          }
+          if (!Array.isArray(userEduData)) userEduData = rawUserEdu ? [rawUserEdu] : [];
+
+          const planName = user.STUDY_PLANS?.plan_name || "";
+          const dbPlanGroup = user.STUDY_PLANS?.plan_group || ""; 
+          let inferredPlanGroup = "";
+
+          if (planName.includes("ปวช") || planName.includes("เตรียมวิศว")) {
+            inferredPlanGroup = "vocational";
+          } else if (planName.includes("ปวส")) {
+            inferredPlanGroup = "high-vocational";
+          } else if (planName) {
+            inferredPlanGroup = "high-school"; 
+          }
+
+          const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.some(status => userEduData.includes(status));
+          const passEduType = requiredTypes.length === 0 || 
+                              requiredTypes.includes(dbPlanGroup) || 
+                              requiredTypes.includes(inferredPlanGroup);
+
+          if (!passEduStatus) failReasons.push("สถานะการศึกษาไม่ตรงเกณฑ์");
+          if (!passEduType) failReasons.push(`วุฒิการศึกษาไม่ตรงเกณฑ์`);
+
+          // 3. ตรวจสอบระดับชั้น
+          const userLevel = user.current_level || 0
+          const minLevel = criteria.min_level || 0
+          const maxLevel = criteria.max_level || 99
+          const passLevel = userLevel >= minLevel && userLevel <= maxLevel
+          if (!passLevel) failReasons.push("ระดับชั้นไม่ตรงเกณฑ์")
+
+          // 4. ตรวจสอบคะแนน TCAS และ คำนวณคะแนนรวม
+          let passScores = true;
+          let fallbackTotalScore = 0; // 👈 1. เพิ่มตัวแปรสำหรับคำนวณคะแนนไว้เผื่อ Backend ไม่ได้ส่งมา
+
+          requiredSubjects.forEach(reqSub => {
+            const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id)
             
-            // ตรวจสอบขั้นต่ำ
-            if (scoreValue < reqSub.min_score) {
+            if (!userSubScore || userSubScore.score_value == null) {
               passScores = false
-              failReasons.push(`คะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'} ไม่ถึงขั้นต่ำ (${reqSub.min_score})`)
+              failReasons.push(`ไม่ได้กรอกคะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'}`)
+            } else {
+              const scoreValue = parseFloat(userSubScore.score_value) || 0;
+              
+              // ตรวจสอบขั้นต่ำ
+              if (scoreValue < reqSub.min_score) {
+                passScores = false
+                failReasons.push(`คะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'} ไม่ถึงขั้นต่ำ (${reqSub.min_score})`)
+              }
+
+              // 👈 2. คำนวณคะแนนถ่วงน้ำหนัก (คะแนนดิบ * ค่าน้ำหนัก / 100) สะสมเข้าไป
+              const weight = parseFloat(reqSub.weight) || 0;
+              fallbackTotalScore += (scoreValue * weight) / 100;
             }
-            
-            // 🚨 คำนวณคะแนนรวม 🚨 
-            // หาก Apply_detail.jsx มีการคูณค่าน้ำหนัก (weight) ให้แก้ไขบรรทัดล่างนี้ 
-            // เช่น: const weight = reqSub.weight || 100; totalScore += scoreValue * (weight / 100);
-            totalScore += scoreValue; 
+          })
+
+          const passAll = passGpax && passEduStatus && passEduType && passLevel && passScores
+
+          return {
+            id: app.id,
+            name: `${user.first_name || 'ไม่ระบุ'} ${user.last_name || ''}`,
+            faculty: criteria.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name || 'ไม่ระบุ',
+            major: criteria.PROGRAMS?.prog_name || 'ไม่ระบุ',
+            round: criteria.tcas_round || '-',
+            gpa: app.gpax || 0.00,
+            minGpa: criteria.min_gpax || 0.00,
+            // 🚨 3. ถ้า Backend ส่ง calculatedTotalScore มาให้ใช้ค่านั้น ถ้าไม่มีให้ใช้ fallbackTotalScore ที่เพิ่งคำนวณ
+            totalScore: app.calculatedTotalScore !== undefined ? app.calculatedTotalScore : fallbackTotalScore, 
+            passAll,
+            failReasons,
+            status: app.status
           }
         })
-
-        const passAll = passGpax && passEduStatus && passEduType && passLevel && passScores
-
-        return {
-          id: app.id,
-          name: `${user.first_name || 'ไม่ระบุ'} ${user.last_name || ''}`,
-          faculty: criteria.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name || 'ไม่ระบุ',
-          major: criteria.PROGRAMS?.prog_name || 'ไม่ระบุ',
-          round: criteria.tcas_round || '-',
-          gpa: app.gpax || 0.00,
-          minGpa: criteria.min_gpax || 0.00,
-          totalScore: totalScore, // ส่งคะแนนรวมออกไปเพื่อนำไป sort
-          passAll,
-          failReasons,
-          status: app.status
-        }
-      })
-
-      setRawData(formattedData)
-    } else {
+        
+        setRawData(formattedData)
+      }
+    } catch (error) {
       console.error("Error fetching applications:", error)
+    } finally {
+      setLoading(false)
     }
-    
-    setLoading(false)
   }
 
   useEffect(() => {
     fetchApplicants()
-  }, [roundFilter, facultyFilter, programFilter])
+  }, [roundFilter, facultyFilter, programFilter, dbType]) // 👈 เพิ่ม dbType ใน dependency
 
-  // --- กรองและจัดเรียงข้อมูลบน Client-side ---
   const applicants = useMemo(() => {
     let result = rawData
     
-    // กรองตามคุณสมบัติ
     if (qualFilter === "pass") result = rawData.filter(a => a.passAll)
     if (qualFilter === "fail") result = rawData.filter(a => !a.passAll)
     
-    // เรียงลำดับ (Sorting)
     return result.sort((a, b) => {
-      // 1. เรียงตามคะแนนรวม (มากไปน้อย)
       if (b.totalScore !== a.totalScore) {
         return b.totalScore - a.totalScore
       }
-      // 2. ถ้าคะแนนรวมเท่ากัน เรียงตาม GPAX (มากไปน้อย)
       return b.gpa - a.gpa
     })
   }, [rawData, qualFilter])
@@ -216,8 +188,8 @@ export default function ApplicantListTable() {
     const isConfirmed = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบใบสมัครของ "${name}"?\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`)
     if (isConfirmed) {
       try {
-        const { error } = await supabase.from('APPLICATION').delete().eq('id', id)
-        if (error) throw error
+        // 👈 เรียกใช้ Endpoint ที่เราเคยสร้างไว้ตอนทำหน้า Student_details
+        await apiFetch(`/api/applications/${id}`, dbType, { method: "DELETE" })
         alert("ลบข้อมูลใบสมัครเรียบร้อยแล้ว")
         fetchApplicants()
       } catch (err) {

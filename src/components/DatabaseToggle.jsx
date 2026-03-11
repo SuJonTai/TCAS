@@ -15,8 +15,8 @@ export function DatabaseToggle() {
         onChange={(e) => setDbType(e.target.value)}
         className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
       >
-        <option value="supabase">Supabase (BaaS)</option>
-        <option value="sqlserver">SQL Server (Cloud)</option>
+        <option value="supabase">Supabase (PostgresSQL)</option>
+        <option value="sqlserver">Microsoft SQL Server</option>
       </select>
     </div>
   );

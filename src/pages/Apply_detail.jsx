@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
@@ -12,7 +12,10 @@ import {
   CheckCircle2,
   Calculator
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+
+// 👈 นำเข้า Context และ API Fetch
+import { useDatabase } from "@/context/DatabaseContext"
+import { apiFetch } from "@/services/apiService"
 
 // --- Helper Component: Dynamic Status Badge ---
 function StatusBadge({ status }) {
@@ -45,6 +48,7 @@ function formatEducationType(type) {
 export default function ApplicantDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { dbType } = useDatabase() // 👈 ดึงประเภท Database
   
   const [applicant, setApplicant] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -57,82 +61,41 @@ export default function ApplicantDetailPage() {
 
   useEffect(() => {
     const fetchApplicantData = async () => {
-      const { data, error } = await supabase
-        .from('APPLICATION')
-        .select(`
-          id,
-          user_id, 
-          status,
-          gpax,
-          portfolio_url,
-          transcript_url,
-          USERS ( 
-            first_name, 
-            last_name, 
-            citizen_id,
-            edu_status,
-            current_level,
-            high_school,
-            STUDY_PLANS ( plan_name, plan_group ) 
-          ),
-          ADMISSION_CRITERIA (
-            tcas_round,
-            ADMISSION_PROJECTS ( project_name ), 
-            PROGRAMS (
-              prog_name,
-              DEPARTMENTS (
-                dept_name,
-                FACULTIES ( faculty_name )
-              )
-            ),
-            CRITERIA_SUBJECTS (
-              subject_id,
-              weight,
-              SUBJECTS ( subject_name )
-            )
-          )
-        `)
-        .eq('id', id)
-        .single()
-
-      if (error) {
-        console.error("Fetch Error:", error.message)
-        setLoading(false)
-        return
-      }
-
-      if (data) {
-        setApplicant(data)
-        setCurrentStatus(data.status || "pending")
-        if (data.user_id) {
-          // ดึงข้อมูลคะแนนของผู้ใช้ โดยระบุ subject_id เพื่อใช้ในการ map กับเกณฑ์
-          const { data: scoreData } = await supabase
-            .from('USER_SCORES')
-            .select(`subject_id, score_value, SUBJECTS ( subject_name )`)
-            .eq('user_id', data.user_id)
-          if (scoreData) setScores(scoreData)
+      try {
+        setLoading(true)
+        // 👈 เรียก API เพื่อดึงข้อมูลรายละเอียดและคะแนนรวบยอดจาก Backend
+        const data = await apiFetch(`/api/staff/applicants/${id}`, dbType)
+        
+        if (data && data.applicant) {
+          setApplicant(data.applicant)
+          setCurrentStatus(data.applicant.status || "pending")
+          setScores(data.scores || [])
         }
+      } catch (error) {
+        console.error("Fetch Error:", error.message)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     fetchApplicantData()
-  }, [id])
+  }, [id, dbType])
 
   const handleUpdateStatus = async (newStatus) => {
     setSaving(true)
-    const { error } = await supabase
-      .from('APPLICATION')
-      .update({ status: newStatus })
-      .eq('id', id)
+    try {
+      // 👈 เรียก API เพื่ออัปเดตสถานะ
+      await apiFetch(`/api/staff/applicants/${id}/status`, dbType, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus })
+      })
 
-    setSaving(false)
-    setConfirmAction(null)
-
-    if (error) {
-      alert("เกิดข้อผิดพลาด: " + error.message)
-    } else {
       setCurrentStatus(newStatus)
       setShowResultDialog(true)
+    } catch (error) {
+      alert("เกิดข้อผิดพลาด: " + error.message)
+    } finally {
+      setSaving(false)
+      setConfirmAction(null)
     }
   }
 
@@ -143,15 +106,11 @@ export default function ApplicantDetailPage() {
     const criteriaSubjects = applicant.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || []
     let totalScore = 0
     
-    // หากมีการคิดค่าน้ำหนักของ GPAX สามารถเพิ่ม logic ตรงนี้ได้ (ตัวอย่างนี้เน้นเฉพาะวิชาสอบ)
-    
     const details = criteriaSubjects.map(reqSub => {
-      // หาคะแนนดิบของผู้สมัครในวิชานั้นๆ
       const userScoreObj = scores.find(s => s.subject_id === reqSub.subject_id)
       const rawScore = userScoreObj ? Number(userScoreObj.score_value) : 0
       
       const weight = Number(reqSub.weight || 0)
-      // สูตรคำนวณมาตรฐาน: (คะแนนดิบ * ค่าน้ำหนัก) / 100
       const weightedScore = (rawScore * weight) / 100
       
       totalScore += weightedScore
@@ -322,7 +281,13 @@ export default function ApplicantDetailPage() {
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {applicant.portfolio_url ? (
-            <a href={applicant.portfolio_url} target="_blank" rel="noreferrer" className="flex items-center p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-red-50 hover:border-red-100 transition-all group">
+            <a 
+               // 👈 ดักลิงก์เก่าให้วิ่งไปหา Node Backend (Port 3000) แทน React Router
+               href={applicant.portfolio_url.startsWith('/') ? `http://localhost:3000${applicant.portfolio_url}` : applicant.portfolio_url} 
+               target="_blank" 
+               rel="noreferrer" 
+               className="flex items-center p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-red-50 hover:border-red-100 transition-all group"
+            >
               <div className="bg-red-100 p-2 rounded-lg mr-4 group-hover:scale-110 transition-transform">
                 <FileText className="h-6 w-6 text-red-600" />
               </div>
@@ -334,7 +299,13 @@ export default function ApplicantDetailPage() {
           ) : <div className="p-4 border border-dashed rounded-xl text-xs text-slate-400 text-center">ไม่มีไฟล์ Portfolio</div>}
 
           {applicant.transcript_url ? (
-            <a href={applicant.transcript_url} target="_blank" rel="noreferrer" className="flex items-center p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-100 transition-all group">
+            <a 
+               // 👈 ดักลิงก์เก่าเช่นเดียวกัน
+               href={applicant.transcript_url.startsWith('/') ? `http://localhost:3000${applicant.transcript_url}` : applicant.transcript_url} 
+               target="_blank" 
+               rel="noreferrer" 
+               className="flex items-center p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-100 transition-all group"
+            >
               <div className="bg-blue-100 p-2 rounded-lg mr-4 group-hover:scale-110 transition-transform">
                 <FileCheck className="h-6 w-6 text-blue-600" />
               </div>

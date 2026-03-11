@@ -1,9 +1,9 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react" // 👈 1. เพิ่ม useEffect และ useRef
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { GraduationCap, Menu, X, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DatabaseToggle } from "./DatabaseToggle"
-
+import { useDatabase } from "@/context/DatabaseContext" // 👈 2. นำเข้า useDatabase
 
 const navLinks = [
   { href: "/", label: "หน้าหลัก" },
@@ -23,6 +23,9 @@ export default function Navbar() {
   const pathname = location.pathname
   const [mobileOpen, setMobileOpen] = useState(false)
   
+  const { dbType } = useDatabase() // 👈 3. ดึงค่า dbType ปัจจุบัน
+  const isFirstRender = useRef(true) // 👈 4. ใช้ useRef เพื่อเช็คว่าเป็นการโหลดหน้าเว็บครั้งแรกหรือไม่
+
   // Read from localStorage
   const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
   const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
@@ -37,6 +40,21 @@ export default function Navbar() {
     }
     navigate("/")
   }
+
+  // 🚨 5. เพิ่ม useEffect เพื่อคอยฟังการเปลี่ยนแปลงของ dbType 🚨
+  useEffect(() => {
+    // ข้ามการทำงานในจังหวะโหลดหน้าเว็บครั้งแรก
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    
+    // ถ้ามีการกดสลับ Database (dbType เปลี่ยน) และมีคนล็อกอินอยู่ ให้ Logout ทันที
+    if (isLogin) {
+      handleLogout();
+      alert("สลับฐานข้อมูลเรียบร้อย ");
+    }
+  }, [dbType]); // Trigger เมื่อ dbType มีการเปลี่ยนแปลง
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {

@@ -9,7 +9,21 @@ import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import fs from 'fs';
 
-const upload = multer({ dest: 'uploads/' });
+
+// 1. ตั้งค่า Storage Engine ของ Multer ใหม่เพื่อให้รักษานามสกุลไฟล์
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/'); // โฟลเดอร์ที่เก็บไฟล์
+    },
+    filename: function (req, file, cb) {
+        // ดึงนามสกุลไฟล์เดิมมา (เช่น .pdf)
+        const ext = path.extname(file.originalname);
+        // ตั้งชื่อไฟล์ใหม่: ชื่อฟิลด์ (transcript/portfolio) + เวลาปัจจุบัน + นามสกุลเดิม
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
+    }
+});
+const upload = multer({ storage: storage });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +33,7 @@ console.log("DEBUG: SUPABASE_URL from env:", process.env.SUPABASE_URL);
 console.log("DEBUG: VITE_SUPABASE_URL from env:", process.env.VITE_SUPABASE_URL);
 
 const app = express();
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(cors());
 app.use(express.json());
 
@@ -647,8 +662,8 @@ app.post('/api/apply', upload.fields([{ name: 'transcript' }, { name: 'portfolio
     const { user_id, criteria_id, gpax } = req.body;
 
     // Fallback URLs for files (since we are skipping complex MS SQL file storage)
-    let transcriptUrl = '/local-files/transcript.pdf';
-    let portfolioUrl = req.files['portfolio'] ? '/local-files/portfolio.pdf' : null;
+    const transcriptUrl = req.files['transcript'] ? `http://localhost:3000/uploads/${req.files['transcript'][0].filename}` : null;
+    const portfolioUrl = req.files['portfolio'] ? `http://localhost:3000/uploads/${req.files['portfolio'][0].filename}` : null;
 
     try {
         if (useSupabase) {
@@ -1077,7 +1092,7 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
             const subjects = await sql.query`SELECT * FROM SUBJECTS ORDER BY id ASC`;
             const user = await sql.query`SELECT edu_status, current_level, gpax_5_term, plan_id, high_school FROM USERS WHERE id = ${userId}`;
             const scores = await sql.query`SELECT subject_id, score_value FROM USER_SCORES WHERE user_id = ${userId}`;
-            
+
             // 1. ใช้ LEFT JOIN แบบ Flat ธรรมดา
             const appsResult = await sql.query`
                 SELECT 
@@ -1225,6 +1240,287 @@ app.delete('/api/applications/:appId', async (req, res) => {
         }
         res.json({ message: "Deleted application" });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- GET Staff Applicant Results (With nested relations) ---
+app.get('/api/staff/applicants', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { round, faculty_id, program_id } = req.query;
+
+    try {
+        if (useSupabase) {
+            // 🚨 1. ฝั่ง Supabase: เพิ่ม weight เข้าไปใน CRITERIA_SUBJECTS
+            let query = supabase.from('APPLICATION').select(`
+                id, status, gpax,
+                USERS ( first_name, last_name, edu_status, current_level, plan_id, STUDY_PLANS ( plan_name, plan_group ), USER_SCORES ( subject_id, score_value ) ),
+                ADMISSION_CRITERIA!inner (
+                    tcas_round, program_id, min_gpax, edu_status_req, min_level, max_level,
+                    CRITERIA_SUBJECTS ( subject_id, min_score, weight, SUBJECTS ( subject_name ) ),
+                    PROGRAMS!inner ( prog_name, DEPARTMENTS!inner ( faculty_id, FACULTIES ( faculty_name ) ) )
+                )
+            `);
+
+            if (round) query = query.eq('ADMISSION_CRITERIA.tcas_round', parseInt(round));
+            if (program_id) query = query.eq('ADMISSION_CRITERIA.program_id', parseInt(program_id));
+            if (faculty_id) query = query.eq('ADMISSION_CRITERIA.PROGRAMS.DEPARTMENTS.faculty_id', parseInt(faculty_id));
+
+            const { data, error } = await query;
+            if (error) throw error;
+            
+            // คำนวณคะแนนของ Supabase ก่อนส่ง
+            const formattedData = data.map(app => {
+                let totalScore = 0;
+                const criteriaSubjects = app.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || [];
+                const userScores = app.USERS?.USER_SCORES || [];
+                
+                criteriaSubjects.forEach(reqSub => {
+                    const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id);
+                    if (userSubScore) {
+                        const rawScore = parseFloat(userSubScore.score_value) || 0;
+                        const weight = parseFloat(reqSub.weight) || 0;
+                        totalScore += (rawScore * weight) / 100;
+                    }
+                });
+                
+                return { ...app, calculatedTotalScore: totalScore };
+            });
+
+            return res.json(formattedData);
+
+        } else {
+            // =====================================
+            // MS SQL Server Logic
+            // =====================================
+            let sqlQuery = `
+                SELECT
+                    a.id, a.status, a.gpax,
+                    u.first_name, u.last_name, u.edu_status, u.current_level, u.plan_id,
+                    sp.plan_name, sp.plan_group,
+                    ac.tcas_round, ac.program_id, ac.min_gpax, ac.edu_status_req, ac.min_level, ac.max_level,
+                    p.prog_name,
+                    d.faculty_id,
+                    f.faculty_name,
+                    (SELECT subject_id, score_value FROM USER_SCORES WHERE user_id = u.id FOR JSON PATH) AS USER_SCORES,
+                    (
+                        -- 🚨 2. ฝั่ง SQL Server: เพิ่ม cs.weight เข้ามาใน Select
+                        SELECT cs.subject_id, cs.min_score, cs.weight,
+                               s.subject_name AS 'SUBJECTS.subject_name'
+                        FROM CRITERIA_SUBJECTS cs
+                        LEFT JOIN SUBJECTS s ON s.id = cs.subject_id
+                        WHERE cs.criteria_id = ac.id
+                        FOR JSON PATH
+                    ) AS CRITERIA_SUBJECTS
+                FROM APPLICATION a
+                LEFT JOIN USERS u ON a.user_id = u.id
+                LEFT JOIN STUDY_PLANS sp ON u.plan_id = sp.id
+                INNER JOIN ADMISSION_CRITERIA ac ON a.criteria_id = ac.id
+                INNER JOIN PROGRAMS p ON ac.program_id = p.id
+                INNER JOIN DEPARTMENTS d ON p.dept_id = d.id
+                INNER JOIN FACULTIES f ON d.faculty_id = f.id
+                WHERE 1=1
+            `;
+
+            if (round) sqlQuery += ` AND ac.tcas_round = ${parseInt(round)}`;
+            if (program_id) sqlQuery += ` AND ac.program_id = ${parseInt(program_id)}`;
+            if (faculty_id) sqlQuery += ` AND d.faculty_id = ${parseInt(faculty_id)}`;
+
+            const result = await sql.query(sqlQuery);
+
+            const formattedData = result.recordset.map(row => {
+                const userScores = row.USER_SCORES ? JSON.parse(row.USER_SCORES) : [];
+                const criteriaSubjects = row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : [];
+                
+                // 🚨 คำนวณคะแนนถ่วงน้ำหนักตรงนี้
+                let totalScore = 0;
+                criteriaSubjects.forEach(reqSub => {
+                    const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id);
+                    if (userSubScore) {
+                        const rawScore = parseFloat(userSubScore.score_value) || 0;
+                        const weight = parseFloat(reqSub.weight) || 0;
+                        totalScore += (rawScore * weight) / 100;
+                    }
+                });
+
+                return {
+                    id: row.id,
+                    status: row.status,
+                    gpax: row.gpax,
+                    calculatedTotalScore: totalScore, 
+                    USERS: {
+                        first_name: row.first_name,
+                        last_name: row.last_name,
+                        edu_status: row.edu_status,
+                        current_level: row.current_level,
+                        plan_id: row.plan_id,
+                        STUDY_PLANS: { plan_name: row.plan_name, plan_group: row.plan_group },
+                        USER_SCORES: userScores
+                    },
+                    ADMISSION_CRITERIA: {
+                        tcas_round: row.tcas_round,
+                        program_id: row.program_id,
+                        min_gpax: row.min_gpax,
+                        edu_status_req: row.edu_status_req,
+                        min_level: row.min_level,
+                        max_level: row.max_level,
+                        CRITERIA_SUBJECTS: criteriaSubjects,
+                        PROGRAMS: {
+                            prog_name: row.prog_name,
+                            DEPARTMENTS: {
+                                faculty_id: row.faculty_id,
+                                FACULTIES: { faculty_name: row.faculty_name }
+                            }
+                        }
+                    }
+                };
+            });
+
+            return res.json(formattedData);
+        }
+    } catch (err) {
+        console.error("Staff Applicant Fetch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/staff/applicants/:id', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { id } = req.params;
+
+    try {
+        if (useSupabase) {
+            const { data: applicantData, error } = await supabase
+                .from('APPLICATION')
+                .select(`
+                    id, user_id, status, gpax, portfolio_url, transcript_url,
+                    USERS ( first_name, last_name, citizen_id, edu_status, current_level, high_school, STUDY_PLANS ( plan_name, plan_group ) ),
+                    ADMISSION_CRITERIA (
+                        tcas_round,
+                        ADMISSION_PROJECTS ( project_name ), 
+                        PROGRAMS ( prog_name, DEPARTMENTS ( dept_name, FACULTIES ( faculty_name ) ) ),
+                        CRITERIA_SUBJECTS ( subject_id, weight, SUBJECTS ( subject_name ) )
+                    )
+                `)
+                .eq('id', id)
+                .single();
+
+            if (error) throw error;
+            
+            // ดึงคะแนนแยกออกมาเพื่อส่งไปในก้อนเดียว
+            let scoreData = [];
+            if (applicantData && applicantData.user_id) {
+                const { data } = await supabase
+                    .from('USER_SCORES')
+                    .select('subject_id, score_value, SUBJECTS ( subject_name )')
+                    .eq('user_id', applicantData.user_id);
+                if (data) scoreData = data;
+            }
+            
+            return res.json({ applicant: applicantData, scores: scoreData });
+
+        } else {
+            // MS SQL Server Logic
+            const appResult = await sql.query`
+                SELECT
+                    a.id, a.user_id, a.status, a.gpax, a.portfolio_url, a.transcript_url,
+                    u.first_name, u.last_name, u.citizen_id, u.edu_status, u.current_level, u.high_school, u.plan_id,
+                    sp.plan_name, sp.plan_group,
+                    ac.tcas_round,
+                    proj.project_name,
+                    p.prog_name,
+                    d.dept_name,
+                    f.faculty_name,
+                    (
+                        SELECT cs.subject_id, cs.weight,
+                               s.subject_name AS 'SUBJECTS.subject_name'
+                        FROM CRITERIA_SUBJECTS cs
+                        LEFT JOIN SUBJECTS s ON s.id = cs.subject_id
+                        WHERE cs.criteria_id = ac.id
+                        FOR JSON PATH
+                    ) AS CRITERIA_SUBJECTS
+                FROM APPLICATION a
+                LEFT JOIN USERS u ON a.user_id = u.id
+                LEFT JOIN STUDY_PLANS sp ON u.plan_id = sp.id
+                LEFT JOIN ADMISSION_CRITERIA ac ON a.criteria_id = ac.id
+                LEFT JOIN ADMISSION_PROJECTS proj ON ac.project_id = proj.id
+                LEFT JOIN PROGRAMS p ON ac.program_id = p.id
+                LEFT JOIN DEPARTMENTS d ON p.dept_id = d.id
+                LEFT JOIN FACULTIES f ON d.faculty_id = f.id
+                WHERE a.id = ${id}
+            `;
+
+            if (appResult.recordset.length === 0) return res.status(404).json({ error: "Applicant not found" });
+
+            const row = appResult.recordset[0];
+            const formattedApplicant = {
+                id: row.id,
+                user_id: row.user_id,
+                status: row.status,
+                gpax: row.gpax,
+                portfolio_url: row.portfolio_url,
+                transcript_url: row.transcript_url,
+                USERS: {
+                    first_name: row.first_name,
+                    last_name: row.last_name,
+                    citizen_id: row.citizen_id,
+                    edu_status: row.edu_status,
+                    current_level: row.current_level,
+                    high_school: row.high_school,
+                    STUDY_PLANS: { plan_name: row.plan_name, plan_group: row.plan_group }
+                },
+                ADMISSION_CRITERIA: {
+                    tcas_round: row.tcas_round,
+                    ADMISSION_PROJECTS: { project_name: row.project_name },
+                    PROGRAMS: {
+                        prog_name: row.prog_name,
+                        DEPARTMENTS: {
+                            dept_name: row.dept_name,
+                            FACULTIES: { faculty_name: row.faculty_name }
+                        }
+                    },
+                    CRITERIA_SUBJECTS: row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : []
+                }
+            };
+
+            // Fetch Scores
+            const scoresResult = await sql.query`
+                SELECT us.subject_id, us.score_value, s.subject_name AS 'SUBJECTS.subject_name'
+                FROM USER_SCORES us
+                LEFT JOIN SUBJECTS s ON us.subject_id = s.id
+                WHERE us.user_id = ${row.user_id}
+                FOR JSON PATH
+            `;
+            
+            const scores = scoresResult.recordset[0] ? Object.values(scoresResult.recordset[0])[0] : '[]';
+
+            return res.json({ 
+                applicant: formattedApplicant, 
+                scores: JSON.parse(scores) 
+            });
+        }
+    } catch (err) {
+        console.error("Detail Fetch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PUT Update Application Status ---
+app.put('/api/staff/applicants/:id/status', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { id } = req.params;
+    const { status } = req.body;
+
+    try {
+        if (useSupabase) {
+            const { error } = await supabase.from('APPLICATION').update({ status }).eq('id', id);
+            if (error) throw error;
+        } else {
+            await sql.query`UPDATE APPLICATION SET status = ${status} WHERE id = ${id}`;
+        }
+        res.json({ message: "Status updated successfully" });
+    } catch (err) {
+        console.error("Status Update Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
