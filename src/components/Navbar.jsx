@@ -2,11 +2,13 @@ import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { GraduationCap, Menu, X, User } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { DatabaseToggle } from "./DatabaseToggle"
+
 
 const navLinks = [
   { href: "/", label: "หน้าหลัก" },
   { href: "/admission", label: "เกณฑ์รับสมัคร" },
-  { href: "/student/details", label: "ข้อมูลผู้สมัคร" },
+  { href: "/student/details", label: "ข้อมูลผู้สมัคร" },
   { href: "/apply", label: "สมัครเรียน" },
   { href: "/staff", label: "สำหรับเจ้าหน้าที่" },
   { href: "/login", label: "เข้าสู่ระบบ" },
@@ -53,19 +55,13 @@ export default function Navbar() {
   }
 
   // --- Visibility Logic ---
-  // Filter out links the user shouldn't even see based on their role
   const visibleLinks = navLinks.filter(link => {
     const isApply = link.href === "/apply";
     const isStudentScore = link.href === "/student/details";
-    const isStaffLink = link.href.startsWith("/staff"); // Catches links under /staff 
+    const isStaffLink = link.href.startsWith("/staff"); 
 
-    // 1. Hide Applicant-only links from Staff
     if (isLogin && role === "staff" && (isApply || isStudentScore)) return false;
-    
-    // 2. Hide Staff-only links from Applicants/Students
     if (isLogin && (role === "applicant" || role === "student") && isStaffLink) return false;
-    
-    // 3. Hide restricted links from Guests (Allow them to see /apply and /staff so they are prompted to login)
     if (!isLogin && (isStudentScore || link.href.startsWith("/staff"))) return false;
 
     return true;
@@ -112,6 +108,12 @@ export default function Navbar() {
 
         {/* Desktop Menu */}
         <div className="hidden items-center gap-1 md:flex">
+          
+          {/* === ADDED DATABASE TOGGLE HERE === */}
+          <div className="mr-2 flex items-center pr-2 border-r border-border">
+            <DatabaseToggle />
+          </div>
+
           {visibleLinks.map((link) => {
             if (isLogin && link.href === "/login") {
               return <div key={link.href}>{renderUserProfile(false)}</div>
@@ -148,6 +150,12 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="border-t border-border bg-card px-4 pb-4 pt-2 md:hidden">
           <div className="flex flex-col gap-1">
+            
+            {/* === ADDED DATABASE TOGGLE HERE === */}
+            <div className="mb-2 border-b border-border pb-3 px-3.5 pt-1">
+              <DatabaseToggle />
+            </div>
+
             {visibleLinks.map((link) => {
               if (isLogin && link.href === "/login") {
                 return <div key={link.href}>{renderUserProfile(true)}</div>

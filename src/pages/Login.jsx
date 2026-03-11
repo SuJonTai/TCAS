@@ -2,12 +2,13 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
-import { supabase } from "@/lib/supabase"
-import bcrypt from "bcryptjs"
+import { useDatabase } from "@/context/DatabaseContext" // 👈 Added
+import { loginUser } from "@/services/apiService"       // 👈 Added
 
 // --- Main Component: Login Form ---
 export default function LoginForm() {
   const navigate = useNavigate()
+  const { dbType } = useDatabase() // 👈 Get current database toggle
   
   // Form and UI States
   const [showPassword, setShowPassword] = useState(false)
@@ -22,53 +23,35 @@ export default function LoginForm() {
     e.preventDefault()
     setLoading(true)
   
-    setTimeout(async () => {
-      try {
-        const { data: user, error } = await supabase
-          .from("USERS")
-          .select("*")
-          .eq("citizen_id", form.userId)
-          .single();
-  
-        if (error || !user) {
-          alert("ไม่พบบัญชีผู้ใช้ในระบบ");
-          setLoading(false);
-          return;
-        }
-  
-        // 1. Secure Password Check!
-        // This compares the plain text input with the hashed DB password
-        const isPasswordValid = bcrypt.compareSync(form.password, user.password);
-  
-        if (!isPasswordValid) {
-          alert("รหัสผ่านไม่ถูกต้อง");
-          setLoading(false);
-          return;
-        }
+    try {
+      // 1. Send login request to Node.js Backend (Backend handles bcrypt securely!)
+      const user = await loginUser(dbType, { 
+        citizen_id: form.userId, 
+        password: form.password 
+      });
 
-        // 4. Success! Save to localStorage
-        // UPDATE: Adjusted to use user.first_name if you want to display it
-        localStorage.setItem("isLogin", "true");
-        localStorage.setItem("role", user.role);
-        localStorage.setItem("first_name", user.first_name); // SAVES THE NAME FOR NAVBAR
-        localStorage.setItem("user_id", user.id); // SAVES THE ID FOR APPLY.JSX
-        localStorage.setItem("userName", user.first_name || "Student");
+      // 2. Success! Save to localStorage
+      localStorage.setItem("isLogin", "true");
+      localStorage.setItem("role", user.role);
+      localStorage.setItem("first_name", user.first_name);
+      localStorage.setItem("user_id", user.id);
+      localStorage.setItem("userName", user.first_name || "Student");
 
-        alert("เข้าสู่ระบบสำเร็จ!");
-        
-        // Redirect based on role
-        if (user.role === "staff" || user.role === "admin") {
-          navigate("/staff");
-        } else {
-          navigate("/");
-        }
-      } catch (err) {
-        console.error(err);
-        alert("เกิดข้อผิดพลาดในการเชื่อมต่อ");
-      } finally {
-        setLoading(false);
+      alert("เข้าสู่ระบบสำเร็จ!");
+      
+      // Redirect based on role
+      if (user.role === "staff" || user.role === "admin" || user.role === "superadmin") {
+        navigate("/staff");
+      } else {
+        navigate("/");
       }
-    }, 1000)
+    } catch (err) {
+      // Catch errors thrown by our apiFetch wrapper (e.g., "รหัสผ่านไม่ถูกต้อง")
+      console.error(err);
+      alert(err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อ");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -103,9 +86,8 @@ export default function LoginForm() {
         <div className="p-6 pt-0">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             
-            {/* Input: User ID */}
             <div className="flex flex-col gap-2">
-              <label htmlFor="userId" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              <label htmlFor="userId" className="text-sm font-medium leading-none">
                 รหัสบัตรประชาชน / รหัสเจ้าหน้าที่
               </label>
               <input
@@ -114,13 +96,12 @@ export default function LoginForm() {
                 value={form.userId}
                 onChange={(e) => setForm({ ...form, userId: e.target.value })}
                 required
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />
             </div>
 
-            {/* Input: Password */}
             <div className="flex flex-col gap-2">
-              <label htmlFor="loginPassword" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              <label htmlFor="loginPassword" className="text-sm font-medium leading-none">
                 รหัสผ่าน
               </label>
               <div className="relative">
@@ -131,35 +112,29 @@ export default function LoginForm() {
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   required
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+              className="mt-2 inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
             </button>
 
-            {/* Link to Register */}
             <p className="text-center text-sm text-muted-foreground">
               ยังไม่มีบัญชีผู้ใช้?{" "}
-              <Link
-                to="/register"
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
+              <Link to="/register" className="font-medium text-primary underline-offset-4 hover:underline">
                 สมัครสมาชิกที่นี่
               </Link>
             </p>

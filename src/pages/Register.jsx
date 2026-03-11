@@ -2,12 +2,13 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { GraduationCap, Eye, EyeOff, ArrowLeft } from "lucide-react"
-import { supabase } from "../lib/supabase"
-import bcrypt from "bcryptjs"
+import { useDatabase } from "@/context/DatabaseContext" // 👈 Added
+import { registerUser } from "@/services/apiService"    // 👈 Added
 
 // --- Main Component: Register Form ---
 export default function RegisterForm() {
   const navigate = useNavigate()
+  const { dbType } = useDatabase() // 👈 Added to get current database toggle
   
   // Form and UI States
   const [showPassword, setShowPassword] = useState(false)
@@ -19,51 +20,37 @@ export default function RegisterForm() {
     age: "",
   })
 
-// --- Handlers ---
-const handleSubmit = async (e) => {
-  e.preventDefault()
-  setLoading(true)
+  // --- Handlers ---
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
 
-  // Split the full name
-  const nameParts = form.fullName.trim().split(" ");
-  const firstName = nameParts[0];
-  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+    // Split the full name (we still do this on the frontend to keep the payload clean)
+    const nameParts = form.fullName.trim().split(" ");
+    const firstName = nameParts[0];
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
 
-  // 1. Hash the password here! (10 is the standard "salt" level)
-  const salt = bcrypt.genSaltSync(10);
-  const hashedPassword = bcrypt.hashSync(form.password, salt);
+    try {
+      // Send plain text password to Node.js; the backend will hash it securely!
+      await registerUser(dbType, {
+        citizen_id: form.nationalId,
+        password: form.password, 
+        first_name: firstName,
+        last_name: lastName,
+        age: form.age // Optional, depending on if your DB actually stores age
+      });
 
-  // 2. Send the HASHED password to Supabase
-  const { data, error } = await supabase.from("USERS").insert([
-    {
-      citizen_id: form.nationalId, 
-      password: hashedPassword, // <-- Using the hashed password
-      first_name: firstName,       
-      last_name: lastName,
-      role: "student",
+      alert("สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว");
+      navigate("/login");
+
+    } catch (err) {
+      console.error("Registration Error:", err);
+      // Our backend will send a specific error message if the ID is duplicated
+      alert(err.message || "สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setLoading(false);
     }
-  ])
-  
-  // API call delay
-  setTimeout(() => {
-    setLoading(false)
-    if (error) {
-      console.error("Supabase Error:", error);
-      
-      // Check if it's a duplicate citizen_id error
-      if (error.code === '23505') {
-        alert("รหัสบัตรประชาชนนี้ถูกใช้งานแล้ว");
-      } else {
-        alert("สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
-      }
-      return
-    }
-    alert("สมัครสมาชิกสำเร็จ! คุณสามารถเข้าสู่ระบบได้แล้ว")
-    navigate("/login")
-  }, 1200)
-}
-
-  
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">

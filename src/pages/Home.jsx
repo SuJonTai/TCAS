@@ -1,19 +1,12 @@
 import React, { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import {
-  CalendarDays,
-  BookOpen,
-  UserPlus,
-  LogIn,
-  TrendingUp,
-  Users,
-  FileCheck,
-  GraduationCap,
-  Loader2 // เพิ่ม icon สำหรับ loading
+  CalendarDays, BookOpen, UserPlus, LogIn, TrendingUp, Users, FileCheck, GraduationCap, Loader2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase" // อย่าลืม import supabase
+import { useDatabase } from "@/context/DatabaseContext"    // 👈 Added
+import { fetchTopFacultiesStats } from "@/services/apiService" // 👈 Added
 
 function AnnouncementBanner() {
   return (
@@ -38,50 +31,33 @@ function HeroSection() {
           ปีการศึกษา 2026
         </div>
         <h1 className="mb-4 font-[family-name:var(--font-poppins)] text-4xl font-bold leading-tight tracking-tight text-foreground text-balance md:text-5xl lg:text-6xl">
-          ยินดีต้อนรับสู่{" "}
-          <span className="text-primary">TCAS KMUTNB</span>{" "}
-          Hub
+          ยินดีต้อนรับสู่ <span className="text-primary">TCAS KMUTNB</span> Hub
         </h1>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          
           <Link to="/admission">
             <Button size="lg" variant="outline" className="gap-2">
-              <BookOpen className="h-4 w-4" />
-              รายละเอียดรับสมัคร
+              <BookOpen className="h-4 w-4" /> รายละเอียดรับสมัคร
             </Button>
           </Link>
-
-          {/* Conditional Button Rendering based on Login Status and Role */}
           {!isLogin ? (
             <Link to="/login">
-              <Button size="lg" className="gap-2">
-                <LogIn className="h-4 w-4" />
-                เข้าสู่ระบบ
-              </Button>
+              <Button size="lg" className="gap-2"><LogIn className="h-4 w-4" /> เข้าสู่ระบบ</Button>
             </Link>
           ) : isStudent ? (
             <Link to="/apply">
-              <Button size="lg" className="gap-2">
-                <UserPlus className="h-4 w-4" />
-                สมัครเรียน
-              </Button>
+              <Button size="lg" className="gap-2"><UserPlus className="h-4 w-4" /> สมัครเรียน</Button>
             </Link>
-          ) : role === "staff" ? (
+          ) : (
             <Link to="/staff">
-              <Button size="lg" className="gap-2">
-                <Users className="h-4 w-4" />
-                จัดการระบบ (Staff)
-              </Button>
+              <Button size="lg" className="gap-2"><Users className="h-4 w-4" /> จัดการระบบ (Staff)</Button>
             </Link>
-          ) : null}
-
+          )}
         </div>
       </div>
     </section>
   )
 }
 
-// StatsCards (ยังคงใช้ข้อมูล Mock แต่คุณสามารถปรับให้ดึงจาก Database ได้เช่นกัน)
 function StatsCards() {
   const stats = [
     { label: "ผู้สมัครทั้งหมด", value: "8,020", icon: Users, change: "+12% จากปีที่แล้ว" },
@@ -89,7 +65,6 @@ function StatsCards() {
     { label: "ผู้มีสิทธิ์เข้าศึกษา", value: "3,241", icon: FileCheck, change: "อัตราการรับ 40.4%" },
     { label: "รอบการรับสมัคร", value: "4", icon: CalendarDays, change: "รอบที่ 1 เปิดรับอยู่" },
   ]
-
   return (
     <section className="mx-auto max-w-7xl px-4 pb-12 lg:px-8">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -101,9 +76,7 @@ function StatsCards() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">{stat.label}</p>
-                <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-foreground">
-                  {stat.value}
-                </p>
+                <p className="font-[family-name:var(--font-poppins)] text-2xl font-bold text-foreground">{stat.value}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{stat.change}</p>
               </div>
             </CardContent>
@@ -115,52 +88,25 @@ function StatsCards() {
 }
 
 function TopFacultiesChart() {
+  const { dbType } = useDatabase() // 👈 Listen to database toggle
   const [topFaculties, setTopFaculties] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchTopFaculties = async () => {
+      setLoading(true)
       try {
-        // ดึงข้อมูลใบสมัครทั้งหมดและ Join ไปจนถึงชื่อคณะ
-        const { data, error } = await supabase
-          .from('APPLICATION')
-          .select(`
-            ADMISSION_CRITERIA (
-              PROGRAMS (
-                DEPARTMENTS (
-                  FACULTIES ( faculty_name )
-                )
-              )
-            )
-          `)
-
-        if (error) throw error
-
-        // จัดกลุ่มและนับจำนวนใบสมัครแยกตามคณะ
-        const counts = {}
-        data?.forEach(app => {
-          const facultyName = app.ADMISSION_CRITERIA?.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name
-          if (facultyName) {
-            counts[facultyName] = (counts[facultyName] || 0) + 1
-          }
-        })
-
-        // แปลงเป็น Array, เรียงลำดับจากมากไปน้อย และตัดเอาแค่ 5 อันดับแรก
-        const sortedData = Object.entries(counts)
-          .map(([name, applicants]) => ({ name, applicants }))
-          .sort((a, b) => b.applicants - a.applicants)
-          .slice(0, 5)
-
-        setTopFaculties(sortedData)
+        // 👈 Fetch directly from our Node.js Backend API
+        const data = await fetchTopFacultiesStats(dbType)
+        setTopFaculties(data || [])
       } catch (error) {
         console.error("Error fetching top faculties:", error.message)
       } finally {
         setLoading(false)
       }
     }
-
     fetchTopFaculties()
-  }, [])
+  }, [dbType]) // Re-fetch if user toggles the database
 
   const max = topFaculties.length > 0 ? Math.max(...topFaculties.map((f) => f.applicants)) : 0
 
@@ -174,9 +120,7 @@ function TopFacultiesChart() {
               5 อันดับคณะที่มีผู้สมัครสูงสุด
             </CardTitle>
           </div>
-          <p className="text-sm text-muted-foreground">
-            อ้างอิงจากข้อมูลการรับสมัครในระบบปัจจุบัน
-          </p>
+          <p className="text-sm text-muted-foreground">อ้างอิงจากข้อมูลการรับสมัครในระบบปัจจุบัน</p>
         </CardHeader>
         <CardContent className="pt-4">
           {loading ? (
@@ -192,17 +136,11 @@ function TopFacultiesChart() {
             <div className="flex flex-col gap-4">
               {topFaculties.map((faculty, i) => (
                 <div key={faculty.name} className="flex items-center gap-4">
-                  <span className="w-6 text-right text-sm font-semibold text-muted-foreground">
-                    {i + 1}
-                  </span>
+                  <span className="w-6 text-right text-sm font-semibold text-muted-foreground">{i + 1}</span>
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-foreground">
-                        {faculty.name}
-                      </span>
-                      <span className="shrink-0 text-sm font-semibold text-foreground">
-                        {faculty.applicants.toLocaleString()}
-                      </span>
+                      <span className="truncate text-sm font-medium text-foreground">{faculty.name}</span>
+                      <span className="shrink-0 text-sm font-semibold text-foreground">{faculty.applicants.toLocaleString()}</span>
                     </div>
                     <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
                       <div
@@ -224,7 +162,6 @@ function TopFacultiesChart() {
   )
 }
 
-// --- Main Home Component ---
 export default function Home() {
   return (
     <div className="min-h-screen bg-background font-sans">

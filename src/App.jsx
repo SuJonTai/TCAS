@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { DatabaseProvider } from "@/context/DatabaseContext"
 
 // --- Global Components ---
 import Navbar from './components/Navbar';
@@ -50,6 +51,7 @@ function RequireStaff({ children }) {
 }
 export default function App() {
   return (
+    <DatabaseProvider>
     <BrowserRouter>
       {/* 1. Navbar is placed outside Routes so it renders on every page */}
       <Navbar />
@@ -78,5 +80,6 @@ export default function App() {
         
       </Routes>
     </BrowserRouter>
+    </DatabaseProvider>
   );
 }
