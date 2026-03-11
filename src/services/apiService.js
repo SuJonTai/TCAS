@@ -118,16 +118,28 @@ export const fetchApplyPreData = async (dbType, userId) => {
 };
 
 export const submitApplication = async (dbType, formData) => {
-  const url = `/api/apply`;
-  const headers = { 'x-database-type': dbType };
+  // 👈 1. เพิ่ม http://localhost:3000 เข้าไปให้ชี้ไปที่ Backend
+  const url = `http://localhost:3000/api/apply`; 
+  
+  // 👈 2. ใช้ชื่อ Header ให้ตรงกับที่ backend เช็ค (x-db-type)
+  const headers = { 'x-db-type': dbType }; 
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: headers, // Notice: No 'Content-Type: application/json' here!
-    body: formData,
+    headers, // ⚠️ ห้ามกำหนด Content-Type เบราว์เซอร์จะจัดการให้เองเมื่อเป็น FormData
+    body: formData
   });
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Something went wrong');
-  return data;
+  if (!response.ok) {
+    let errorMessage = 'API Error';
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.message || errorData.error || errorMessage;
+    } catch {
+      errorMessage = await response.text();
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
 };

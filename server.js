@@ -1053,7 +1053,7 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                 supabase.from("USERS").select("edu_status, current_level, gpax_5_term, plan_id, high_school").eq("id", userId).single(),
                 supabase.from("USER_SCORES").select("subject_id, score_value").eq("user_id", userId),
                 supabase.from("APPLICATION").select(`
-                    id, status, application_date,
+                    id, status, application_date, failReasons,
                     ADMISSION_CRITERIA (
                         tcas_round,
                         ADMISSION_PROJECTS ( project_name ),
@@ -1070,44 +1070,48 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                 applications: appsRes.data || []
             });
         } else {
-            // MS SQL Logic
+            // ==========================================
+            // MS SQL Logic (แก้ไขใหม่)
+            // ==========================================
             const plans = await sql.query`SELECT * FROM STUDY_PLANS ORDER BY plan_name ASC`;
             const subjects = await sql.query`SELECT * FROM SUBJECTS ORDER BY id ASC`;
             const user = await sql.query`SELECT edu_status, current_level, gpax_5_term, plan_id, high_school FROM USERS WHERE id = ${userId}`;
             const scores = await sql.query`SELECT subject_id, score_value FROM USER_SCORES WHERE user_id = ${userId}`;
-
+            
+            // 1. ใช้ LEFT JOIN แบบ Flat ธรรมดา
             const appsResult = await sql.query`
                 SELECT 
                     a.id, a.status, a.application_date,
-                    (
-                        SELECT ac.tcas_round,
-                            proj.project_name AS 'ADMISSION_PROJECTS.project_name',
-                            (
-                                SELECT p.prog_name,
-                                    (
-                                        SELECT f.faculty_name AS 'FACULTIES.faculty_name'
-                                        FROM DEPARTMENTS d
-                                        LEFT JOIN FACULTIES f ON f.id = d.faculty_id
-                                        WHERE d.id = p.dept_id
-                                        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                                    ) AS DEPARTMENTS
-                                FROM PROGRAMS p WHERE p.id = ac.program_id
-                                FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                            ) AS PROGRAMS
-                        FROM ADMISSION_CRITERIA ac
-                        LEFT JOIN ADMISSION_PROJECTS proj ON proj.id = ac.project_id
-                        WHERE ac.id = a.criteria_id
-                        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
-                    ) AS ADMISSION_CRITERIA
+                    ac.tcas_round,
+                    proj.project_name,
+                    p.prog_name,
+                    f.faculty_name
                 FROM APPLICATION a
+                LEFT JOIN ADMISSION_CRITERIA ac ON a.criteria_id = ac.id
+                LEFT JOIN ADMISSION_PROJECTS proj ON ac.project_id = proj.id
+                LEFT JOIN PROGRAMS p ON ac.program_id = p.id
+                LEFT JOIN DEPARTMENTS d ON p.dept_id = d.id
+                LEFT JOIN FACULTIES f ON d.faculty_id = f.id
                 WHERE a.user_id = ${userId}
                 ORDER BY a.application_date DESC
             `;
 
+            // 2. นำข้อมูล Flat มาแปลงเป็น Nested Object ด้วย JavaScript ให้ตรงกับโครงสร้างที่ React คาดหวัง
             const apps = appsResult.recordset.map(row => ({
-                ...row,
-                failReasons: row.failReasons ? JSON.parse(row.failReasons) : null,
-                ADMISSION_CRITERIA: row.ADMISSION_CRITERIA ? JSON.parse(row.ADMISSION_CRITERIA) : null
+                id: row.id,
+                status: row.status,
+                application_date: row.application_date,
+                failReasons: null,
+                ADMISSION_CRITERIA: {
+                    tcas_round: row.tcas_round,
+                    ADMISSION_PROJECTS: { project_name: row.project_name },
+                    PROGRAMS: {
+                        prog_name: row.prog_name,
+                        DEPARTMENTS: {
+                            FACULTIES: { faculty_name: row.faculty_name }
+                        }
+                    }
+                }
             }));
 
             return res.json({

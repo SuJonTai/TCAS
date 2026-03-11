@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle2, AlertCircle, FileText, School, Upload, FileCheck } from "lucide-react";
-import { useDatabase } from "@/context/DatabaseContext"; // 👈 Added
-import { fetchApplyPreData, submitApplication } from "@/services/apiService"; // 👈 Added
+
+// 1. 👈 นำ useDatabase กลับมาใช้
+import { useDatabase } from "@/context/DatabaseContext"; 
+import { fetchApplyPreData, submitApplication } from "@/services/apiService"; 
 
 const rounds = [
   { value: "1", label: "รอบที่ 1 - Portfolio" },
@@ -11,7 +13,7 @@ const rounds = [
 ];
 
 export default function Apply() {
-  const { dbType } = useDatabase(); // 👈 Added
+  const { dbType } = useDatabase(); // 2. 👈 ดึง dbType ปัจจุบัน
   const [facultiesDB, setFacultiesDB] = useState([]);
   const [criteriaDB, setCriteriaDB] = useState([]); 
   const [userProfile, setUserProfile] = useState(null);
@@ -37,7 +39,7 @@ export default function Apply() {
       if (!userId) return;
 
       try {
-        // 👈 Fetch everything from our Node backend in one go!
+        // 3. 👈 ใช้ dbType แทนการ Hardcode
         const data = await fetchApplyPreData(dbType, userId);
         
         setUserProfile(data.user || null);
@@ -50,10 +52,10 @@ export default function Apply() {
       }
     };
     fetchData();
-  }, [dbType]);
+  }, [dbType]); // 👈 เพิ่ม dbType กลับเข้า dependency array
 
   // ==========================================
-  // CASCADING DROPDOWN LOGIC (Unchanged)
+  // CASCADING DROPDOWN LOGIC
   // ==========================================
   const availableADMISSION_Projects = useMemo(() => {
     if (!selectedRound || !criteriaDB.length) return [];
@@ -100,7 +102,7 @@ export default function Apply() {
   }, [selectedFaculty, facultiesDB, validProgramIds]);
 
   // ==========================================
-  // SUBMISSION LOGIC (Refactored for Backend)
+  // SUBMISSION LOGIC
   // ==========================================
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -121,17 +123,16 @@ export default function Apply() {
 
       if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่เลือก");
 
-      // 👈 Create FormData to send files and data together
       const formData = new FormData();
       formData.append("user_id", userId);
       formData.append("criteria_id", matchingCriteria.id);
       formData.append("gpax", userProfile.gpax_5_term);
-      formData.append("transcript", transcriptFile); // Attach file
+      formData.append("transcript", transcriptFile); 
       if (portfolioFile) {
-        formData.append("portfolio", portfolioFile); // Attach file if exists
+        formData.append("portfolio", portfolioFile); 
       }
 
-      // 👈 Send it all to the Node.js backend
+      // 4. 👈 เปลี่ยนกลับมาใช้ dbType การรับไฟล์ FormData ใช้งานกับ SQL Server ได้ปกติครับ!
       await submitApplication(dbType, formData);
 
       setShowSuccess(true);
