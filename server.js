@@ -15,6 +15,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '.env.local') });
+console.log("DEBUG: SUPABASE_URL from env:", process.env.SUPABASE_URL);
+console.log("DEBUG: VITE_SUPABASE_URL from env:", process.env.VITE_SUPABASE_URL);
 
 const app = express();
 app.use(cors());
@@ -28,12 +30,14 @@ const PORT = 3000;
 
 // --- Supabase Setup ---
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
 
 let supabase = null;
 
 if (!supabaseUrl || !supabaseKey) {
-    console.error("⚠️ Warning: Missing Supabase URL or Key in .env.local. Supabase endpoints will fail.");
+    console.error("⚠️ Warning: Missing Supabase Configuration");
+    if(!supabaseUrl) console.error("- Missing: SUPABASE_URL");
+    if(!supabaseKey) console.error("- Missing: SUPABASE_KEY (Anon Key)");
 } else {
     supabase = createClient(supabaseUrl, supabaseKey);
     console.log("✅ Successfully initialized Supabase client");
