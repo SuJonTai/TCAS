@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle2, AlertCircle, FileText, School, Upload, FileCheck } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { useDatabase } from "@/context/DatabaseContext"; // 👈 Added
+import { fetchApplyPreData, submitApplication } from "@/services/apiService"; // 👈 Added
 
 const rounds = [
   { value: "1", label: "รอบที่ 1 - Portfolio" },
@@ -10,13 +11,14 @@ const rounds = [
 ];
 
 export default function Apply() {
+  const { dbType } = useDatabase(); // 👈 Added
   const [facultiesDB, setFacultiesDB] = useState([]);
   const [criteriaDB, setCriteriaDB] = useState([]); 
   const [userProfile, setUserProfile] = useState(null);
   
   // --- Form States ---
   const [selectedRound, setSelectedRound] = useState("");
-  const [selectedProject, setSelectedProject] = useState(""); // Stores project_id
+  const [selectedProject, setSelectedProject] = useState("");
   const [selectedFaculty, setSelectedFaculty] = useState("");
   const [selectedProgram, setSelectedProgram] = useState(""); 
   
@@ -32,35 +34,15 @@ export default function Apply() {
   useEffect(() => {
     const fetchData = async () => {
       const userId = localStorage.getItem("user_id");
-
       if (!userId) return;
 
       try {
-        // 1. Fetch User Profile
-        const { data: userData } = await supabase
-          .from('USERS')
-          .select('gpax_5_term, current_level')
-          .eq('id', userId)
-          .single();
-        if (userData) setUserProfile(userData);
-
-        // 2. Fetch Faculties & Programs (Fixed: No trailing comma)
-        const { data: facData, error: facError } = await supabase
-          .from('FACULTIES')
-          .select(`id, faculty_name, DEPARTMENTS (id, dept_name, PROGRAMS (id, prog_name))`);
-        if (facError) throw facError;
-        setFacultiesDB(facData || []);
-
-        // 3. Fetch Criteria & Join with ADMISSION_Projects (Updated to ADMISSION_CRITERIA & project_id)
-        // NOTE: Make sure 'ADMISSION_PROJECTS' matches your exact table name in Supabase!
-        const { data: critData, error: critError } = await supabase
-          .from('ADMISSION_CRITERIA')
-          .select(`
-            *,
-            ADMISSION_PROJECTS (id, project_name)
-          `);
-        if (critError) throw critError;
-        setCriteriaDB(critData || []);
+        // 👈 Fetch everything from our Node backend in one go!
+        const data = await fetchApplyPreData(dbType, userId);
+        
+        setUserProfile(data.user || null);
+        setFacultiesDB(data.faculties || []);
+        setCriteriaDB(data.criteria || []);
 
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -68,35 +50,27 @@ export default function Apply() {
       }
     };
     fetchData();
-  }, []);
+  }, [dbType]);
 
   // ==========================================
-  // CASCADING DROPDOWN LOGIC
+  // CASCADING DROPDOWN LOGIC (Unchanged)
   // ==========================================
-
-  // 1. ADMISSION_Projects available for the selected Round
   const availableADMISSION_Projects = useMemo(() => {
     if (!selectedRound || !criteriaDB.length) return [];
-    
-    // Filter criteria for this round
     const criteriaForRound = criteriaDB.filter(c => c.tcas_round?.toString() === selectedRound);
     
-    // Extract unique ADMISSION_projects using a Map to avoid duplicates
     const projectMap = new Map();
     criteriaForRound.forEach(c => {
       if (c.project_id && !projectMap.has(c.project_id)) {
         projectMap.set(c.project_id, {
           id: c.project_id,
-          // Fallback to ID if the join fails or name is missing
           name: c.ADMISSION_PROJECTS?.project_name || `โครงการ ${c.project_id}`
         });
       }
     });
-    
     return Array.from(projectMap.values());
   }, [selectedRound, criteriaDB]);
 
-  // Helper: Get valid Program IDs based on Round AND Project
   const validProgramIds = useMemo(() => {
     if (!selectedRound || !selectedProject) return [];
     return criteriaDB
@@ -107,7 +81,6 @@ export default function Apply() {
       .map(c => c.program_id);
   }, [selectedRound, selectedProject, criteriaDB]);
 
-  // 2. Faculties available based on valid Programs
   const availableFaculties = useMemo(() => {
     if (!validProgramIds.length) return [];
     return facultiesDB.filter(f => 
@@ -117,7 +90,6 @@ export default function Apply() {
     );
   }, [facultiesDB, validProgramIds]);
 
-  // 3. Programs available based on Selected Faculty + valid Programs
   const availablePrograms = useMemo(() => {
     if (!selectedFaculty || !validProgramIds.length) return [];
     const faculty = facultiesDB.find(f => f.id.toString() === selectedFaculty);
@@ -127,23 +99,9 @@ export default function Apply() {
     ).filter(p => validProgramIds.includes(p.id)) || [];
   }, [selectedFaculty, facultiesDB, validProgramIds]);
 
-
   // ==========================================
-  // SUBMISSION LOGIC
+  // SUBMISSION LOGIC (Refactored for Backend)
   // ==========================================
-
-  const uploadFile = async (file, bucket) => {
-    if (!file) return "";
-    const userId = localStorage.getItem("user_id");
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}_${bucket}_${Date.now()}.${fileExt}`;
-    
-    const { data, error } = await supabase.storage.from(bucket).upload(fileName, file);
-    if (error) throw error;
-    
-    return supabase.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -155,7 +113,6 @@ export default function Apply() {
       if (!userProfile?.gpax_5_term) throw new Error("กรุณาระบุ GPAX ในหน้าข้อมูลการศึกษาก่อนสมัคร");
       if (!transcriptFile) throw new Error("กรุณาอัปโหลดไฟล์ Transcript (PDF)");
 
-      // 1. Identify the exact Criteria
       const matchingCriteria = criteriaDB.find(
         (c) => c.tcas_round?.toString() === selectedRound && 
                c.program_id?.toString() === selectedProgram &&
@@ -164,42 +121,18 @@ export default function Apply() {
 
       if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่เลือก");
 
-      // 2. PRE-CHECK: Prevent 409 Conflict before it happens
-      const { data: existingApp, error: checkError } = await supabase
-        .from('APPLICATION')
-        .select('id')
-        .eq('user_id', parseInt(userId))
-        .eq('criteria_id', matchingCriteria.id)
-        .maybeSingle(); // Returns null if no record exists
-
-      if (checkError) throw checkError;
-      if (existingApp) {
-        throw new Error("คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว");
+      // 👈 Create FormData to send files and data together
+      const formData = new FormData();
+      formData.append("user_id", userId);
+      formData.append("criteria_id", matchingCriteria.id);
+      formData.append("gpax", userProfile.gpax_5_term);
+      formData.append("transcript", transcriptFile); // Attach file
+      if (portfolioFile) {
+        formData.append("portfolio", portfolioFile); // Attach file if exists
       }
 
-      // 3. Upload Files (Only if the application is new)
-      const [portfolioUrl, transcriptUrl] = await Promise.all([
-        uploadFile(portfolioFile, 'portfolios'),
-        uploadFile(transcriptFile, 'transcripts')
-      ]);
-
-      // 4. Final Insert
-      const { error: insertError } = await supabase
-        .from('APPLICATION')
-        .insert([{
-          user_id: parseInt(userId),
-          criteria_id: matchingCriteria.id,
-          gpax: userProfile.gpax_5_term,
-          status: 'pending',
-          portfolio_url: portfolioUrl,
-          transcript_url: transcriptUrl 
-        }]);
-
-      // Final catch for race conditions (Postgres Error 23505 = Unique Violation)
-      if (insertError) {
-        if (insertError.code === '23505') throw new Error("คุณได้สมัครสาขานี้ไปแล้ว");
-        throw insertError;
-      }
+      // 👈 Send it all to the Node.js backend
+      await submitApplication(dbType, formData);
 
       setShowSuccess(true);
     } catch (err) {
@@ -232,7 +165,7 @@ export default function Apply() {
                 value={selectedRound} 
                 onChange={(e) => {
                   setSelectedRound(e.target.value);
-                  setSelectedProject(""); // Clear downstream
+                  setSelectedProject(""); 
                   setSelectedFaculty("");
                   setSelectedProgram("");
                 }} 
@@ -251,7 +184,7 @@ export default function Apply() {
                 value={selectedProject} 
                 onChange={(e) => {
                   setSelectedProject(e.target.value);
-                  setSelectedFaculty(""); // Clear downstream
+                  setSelectedFaculty(""); 
                   setSelectedProgram("");
                 }} 
                 className="w-full p-2 border rounded-lg outline-none text-sm disabled:bg-gray-50"
@@ -272,7 +205,7 @@ export default function Apply() {
                 value={selectedFaculty} 
                 onChange={(e) => {
                   setSelectedFaculty(e.target.value);
-                  setSelectedProgram(""); // Clear downstream
+                  setSelectedProgram(""); 
                 }} 
                 className="w-full p-2 border rounded-lg outline-none text-sm disabled:bg-gray-50" 
                 disabled={!selectedProject} 

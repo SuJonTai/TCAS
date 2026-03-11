@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { Search, ChevronDown, ChevronRight, Building2, Layers, BookOpen, ArrowRight } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { useDatabase } from "@/context/DatabaseContext" // 👈 Added
+import { fetchAdmissionsData, getFacultyLogoUrl } from "@/services/apiService" // 👈 Added
 
 const formatDate = (dateString) => {
   if (!dateString) return "";
@@ -54,18 +55,16 @@ function MajorLink({ major }) {
   )
 }
 
-function FacultyCard({ faculty }) {
+function FacultyCard({ faculty, dbType }) { // 👈 dbType passed as prop
   const [isOpen, setIsOpen] = useState(false)
-  const [imgError, setImgError] = useState(false) // เพิ่ม state เช็ก error ของรูปภาพ
+  const [imgError, setImgError] = useState(false) 
   
-  const totalRounds = faculty.DEPARTMENTS.reduce((sum, dept) => {
-    return sum + dept.PROGRAMS.reduce((pSum, prog) => pSum + (prog.ADMISSION_CRITERIA?.length || 0), 0)
-  }, 0)
+  const totalRounds = faculty.DEPARTMENTS?.reduce((sum, dept) => {
+    return sum + (dept.PROGRAMS?.reduce((pSum, prog) => pSum + (prog.ADMISSION_CRITERIA?.length || 0), 0) || 0)
+  }, 0) || 0;
 
-  // สร้าง URL รูปภาพจาก Bucket โดยอิงตาม ID ของคณะ (สมมติว่าเป็นไฟล์ .png)
-  const { data: { publicUrl } } = supabase.storage
-    .from('faculty-logos')
-    .getPublicUrl(`${faculty.id}.png`)
+  // 👈 Use our new helper function instead of direct Supabase Storage call
+  const logoUrl = getFacultyLogoUrl(faculty.id, dbType);
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
@@ -74,28 +73,25 @@ function FacultyCard({ faculty }) {
         className="flex w-full items-center justify-between p-6 text-left transition-colors hover:bg-muted/50"
       >
         <div className="flex items-center gap-4">
-          
-          {/* อัปเดตส่วนแสดงผลโลโก้ตรงนี้ครับ */}
           <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10">
-            {!imgError ? (
+            {!imgError && logoUrl ? (
               <img 
-                src={publicUrl} 
+                src={logoUrl} 
                 alt={`${faculty.faculty_name} logo`} 
-                className="h-full w-full object-contain p-1" // ใช้ object-contain รูปจะได้ไม่โดนตัด
-                onError={() => setImgError(true)} // ถ้าหาไฟล์ไม่เจอ จะเซ็ต imgError เป็น true
+                className="h-full w-full object-contain p-1" 
+                onError={() => setImgError(true)} 
               />
             ) : (
-              <Building2 className="h-6 w-6 text-primary" /> // Fallback กลับมาเป็นไอคอน
+              <Building2 className="h-6 w-6 text-primary" /> 
             )}
           </div>
-          {/* จบส่วนอัปเดตโลโก้ */}
 
           <div>
             <h2 className="font-[family-name:var(--font-poppins)] text-lg font-semibold text-foreground">
               {faculty.faculty_name}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {faculty.DEPARTMENTS.length} ภาควิชา • เปิดรับรวม {totalRounds} รอบ
+              {faculty.DEPARTMENTS?.length || 0} ภาควิชา • เปิดรับรวม {totalRounds} รอบ
             </p>
           </div>
         </div>
@@ -107,14 +103,14 @@ function FacultyCard({ faculty }) {
       {isOpen && (
         <div className="border-t border-border bg-muted/10 p-6">
           <div className="flex flex-col gap-6">
-            {faculty.DEPARTMENTS.map((dept) => (
+            {faculty.DEPARTMENTS?.map((dept) => (
               <div key={dept.id} className="flex flex-col gap-3">
                 <div className="flex items-center gap-2 text-foreground">
                   <Layers className="h-4 w-4 text-muted-foreground" />
                   <h3 className="font-medium">{dept.dept_name}</h3>
                 </div>
                 <div className="grid gap-2 pl-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {dept.PROGRAMS.map((major) => (
+                  {dept.PROGRAMS?.map((major) => (
                     <MajorLink key={major.id} major={major} />
                   ))}
                 </div>
@@ -128,42 +124,36 @@ function FacultyCard({ faculty }) {
 }
 
 export default function AdmissionPage() {
+  const { dbType } = useDatabase() // 👈 Get current DB choice
   const [search, setSearch] = useState("")
   const [facultiesDB, setFacultiesDB] = useState([])
   const [loading, setLoading] = useState(true)
 
-useEffect(() => {
-    const fetchFaculties = async () => {
-      const { data, error } = await supabase
-        .from('FACULTIES')
-        .select(`
-          id, 
-          faculty_name, 
-          DEPARTMENTS (
-            id, 
-            dept_name, 
-            PROGRAMS (
-              id, 
-              prog_name,
-              ADMISSION_CRITERIA ( id, tcas_round, start_date, end_date ) 
-            )
-          )
-        `)
-      
-      if (!error && data) setFacultiesDB(data)
-      setLoading(false)
-    }
-    fetchFaculties()
-  }, [])
+  useEffect(() => {
+    const fetchAdmissions = async () => {
+      setLoading(true);
+      try {
+        // 👈 Fetch via our Node.js Backend API
+        const data = await fetchAdmissionsData(dbType);
+        setFacultiesDB(data);
+      } catch (error) {
+        console.error("Failed to fetch admissions:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchAdmissions();
+  }, [dbType]); // 👈 Re-fetch if user toggles DB
 
   const filtered = useMemo(() => {
     if (!search) return facultiesDB
     const lowerSearch = search.toLowerCase()
     return facultiesDB.filter((faculty) => {
-      const matchFaculty = faculty.faculty_name.toLowerCase().includes(lowerSearch)
-      const matchDept = faculty.DEPARTMENTS.some((d) => d.dept_name.toLowerCase().includes(lowerSearch))
-      const matchProg = faculty.DEPARTMENTS.some((d) => 
-        d.PROGRAMS.some((p) => p.prog_name.toLowerCase().includes(lowerSearch))
+      const matchFaculty = faculty.faculty_name?.toLowerCase().includes(lowerSearch)
+      const matchDept = faculty.DEPARTMENTS?.some((d) => d.dept_name?.toLowerCase().includes(lowerSearch))
+      const matchProg = faculty.DEPARTMENTS?.some((d) => 
+        d.PROGRAMS?.some((p) => p.prog_name?.toLowerCase().includes(lowerSearch))
       )
       return matchFaculty || matchDept || matchProg
     })
@@ -190,9 +180,12 @@ useEffect(() => {
 
       <div className="flex flex-col gap-4">
         {loading ? (
-          <p className="text-center text-muted-foreground">กำลังโหลดข้อมูล...</p>
+          <div className="py-12 text-center text-muted-foreground">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+            <p className="mt-4">กำลังโหลดข้อมูล...</p>
+          </div>
         ) : filtered.length > 0 ? (
-          filtered.map((faculty) => <FacultyCard key={faculty.id} faculty={faculty} />)
+          filtered.map((faculty) => <FacultyCard key={faculty.id} faculty={faculty} dbType={dbType} />) // 👈 Pass dbType down
         ) : (
           <div className="rounded-xl border border-border bg-card p-12 text-center text-card-foreground">
             <Search className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-50" />
