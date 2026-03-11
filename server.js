@@ -743,6 +743,23 @@ app.get('/api/faculties', async (req, res) => {
     }
 });
 
+app.post('/api/faculties', async (req, res) => {
+    const { faculty_name } = req.body;
+    const useSupabase = isSupabaseRequest(req);
+    try {
+        if (useSupabase) {
+            const {data, error} = await supabase.from('FACULTIES').insert([{ faculty_name }]);
+            if (error) throw error;
+            return res.status(201).json({ message: "เพิ่มคณะสำเร็จ" });
+        } else { sql.query`INSERT INTO FACULTIES (faculty_name) VALUES (${faculty_name})`;
+            return res.status(201).json({ message: "เพิ่มคณะสำเร็จ" });
+        }
+    }  catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    }
+);
+
 // --- เพิ่มภาควิชาใหม่ (แก้ปัญหา 404 ของคุณ) ---
 app.post('/api/departments', async (req, res) => {
     const { faculty_id, dept_name } = req.body;
