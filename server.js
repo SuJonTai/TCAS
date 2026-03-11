@@ -75,38 +75,62 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', database: useSupabase ? 'Supabase' : 'MS SQL' });
 });
 
-// --- Fetch Faculties ---
+// --- GET All Faculties (with Departments & Programs) ---
 app.get('/api/faculties', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     try {
         if (useSupabase) {
+            // Supabase: ใช้การ Select ซ้อนกัน
             const { data, error } = await supabase
                 .from('FACULTIES')
-                .select('*, DEPARTMENTS(*, PROGRAMS(*))');
+                .select('id, faculty_name, DEPARTMENTS(id, dept_name, PROGRAMS(id, prog_name))')
+                .order('id');
             if (error) throw error;
             return res.json(data);
         } else {
-            // Adjust SQL query if you need to JOIN Departments and Programs
+            // MS SQL Server: ดึงข้อมูลแบบ JOIN 3 ตารางแล้วนำมาจัดรูปแบบเป็น Nested JSON
             const result = await sql.query`
                 SELECT 
-                    f.id, 
-                    f.faculty_name,
-                    (
-                        SELECT d.id, d.dept_name, d.faculty_id
-                        FROM DEPARTMENTS d
-                        WHERE d.faculty_id = f.id
-                        FOR JSON PATH
-                    ) AS DEPARTMENTS
+                    f.id AS fac_id, f.faculty_name,
+                    d.id AS dept_id, d.dept_name,
+                    p.id AS prog_id, p.prog_name
                 FROM FACULTIES f
+                LEFT JOIN DEPARTMENTS d ON f.id = d.faculty_id
+                LEFT JOIN PROGRAMS p ON d.id = p.dept_id
+                ORDER BY f.id, d.id, p.id
             `;
-            const data = result.recordset.map(row => ({
-                ...row,
-                DEPARTMENTS: row.DEPARTMENTS ? JSON.parse(row.DEPARTMENTS) : []
-            }));
 
-            res.json(data);
+            const faculties = [];
+            const facMap = new Map();
+            const deptMap = new Map();
+
+            result.recordset.forEach(row => {
+                // 1. ระดับคณะ (Faculty)
+                if (!facMap.has(row.fac_id)) {
+                    const newFac = { id: row.fac_id, faculty_name: row.faculty_name, DEPARTMENTS: [] };
+                    facMap.set(row.fac_id, newFac);
+                    faculties.push(newFac);
+                }
+                const fac = facMap.get(row.fac_id);
+
+                // 2. ระดับภาควิชา (Department)
+                if (row.dept_id && !deptMap.has(row.dept_id)) {
+                    const newDept = { id: row.dept_id, dept_name: row.dept_name, PROGRAMS: [] };
+                    deptMap.set(row.dept_id, newDept);
+                    fac.DEPARTMENTS.push(newDept);
+                }
+                const dept = deptMap.get(row.dept_id);
+
+                // 3. ระดับสาขาวิชา (Program)
+                if (row.prog_id && dept) {
+                    dept.PROGRAMS.push({ id: row.prog_id, prog_name: row.prog_name });
+                }
+            });
+
+            return res.json(faculties);
         }
     } catch (err) {
+        console.error("Faculties Fetch Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -125,6 +149,85 @@ app.get('/api/applicants', async (req, res) => {
         }
     } catch (err) {
         console.error("API Error:", err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- GET Program Detail (For Admission_detail.jsx) ---
+app.get('/api/programs/:id', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { id } = req.params;
+
+    try {
+        if (useSupabase) {
+            // Supabase: โครงสร้างปกติ
+            const { data, error } = await supabase
+                .from('PROGRAMS')
+                .select(`
+                    id, prog_name,
+                    DEPARTMENTS ( dept_name, FACULTIES ( faculty_name ) ),
+                    ADMISSION_CRITERIA (
+                        id, tcas_round, max_seats, min_gpax, academic_year, edu_status_req, start_date, end_date,
+                        ADMISSION_PROJECTS ( project_name ),
+                        CRITERIA_SUBJECTS ( min_score, weight, SUBJECTS ( subject_name ) )
+                    )
+                `)
+                .eq('id', id)
+                .single();
+
+            if (error) throw error;
+            return res.json(data);
+
+        } else {
+            // MS SQL Server: แก้ปัญหาการซ้อน JSON ด้วย LEFT JOIN และ Dot Notation
+            const result = await sql.query`
+                SELECT 
+                    p.id, 
+                    p.prog_name,
+                    (
+                        SELECT d.dept_name, 
+                               f.faculty_name AS 'FACULTIES.faculty_name'
+                        FROM DEPARTMENTS d 
+                        LEFT JOIN FACULTIES f ON f.id = d.faculty_id
+                        WHERE d.id = p.dept_id
+                        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+                    ) AS DEPARTMENTS,
+                    (
+                        SELECT ac.id, ac.tcas_round, ac.max_seats, ac.min_gpax, ac.academic_year, ac.edu_status_req, ac.start_date, ac.end_date,
+                            proj.project_name AS 'ADMISSION_PROJECTS.project_name',
+                            (
+                                SELECT cs.min_score, cs.weight,
+                                       s.subject_name AS 'SUBJECTS.subject_name'
+                                FROM CRITERIA_SUBJECTS cs 
+                                LEFT JOIN SUBJECTS s ON s.id = cs.subject_id
+                                WHERE cs.criteria_id = ac.id
+                                FOR JSON PATH
+                            ) AS CRITERIA_SUBJECTS
+                        FROM ADMISSION_CRITERIA ac 
+                        LEFT JOIN ADMISSION_PROJECTS proj ON proj.id = ac.project_id
+                        WHERE ac.program_id = p.id
+                        FOR JSON PATH
+                    ) AS ADMISSION_CRITERIA
+                FROM PROGRAMS p
+                WHERE p.id = ${id}
+            `;
+
+            if (result.recordset.length === 0) return res.status(404).json({ error: "Program not found" });
+
+            let row = result.recordset[0];
+            const parsedData = {
+                ...row,
+                DEPARTMENTS: row.DEPARTMENTS ? JSON.parse(row.DEPARTMENTS) : null,
+                ADMISSION_CRITERIA: row.ADMISSION_CRITERIA ? JSON.parse(row.ADMISSION_CRITERIA).map(crit => ({
+                    ...crit,
+                    edu_status_req: crit.edu_status_req ? JSON.parse(crit.edu_status_req) : [] 
+                })) : []
+            };
+
+            return res.json(parsedData);
+        }
+    } catch (err) {
+        console.error("Fetch Program Detail Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -679,52 +782,265 @@ app.post('/api/admission-projects', async (req, res) => {
     }
 });
 
-// --- ดึงเกณฑ์การรับสมัครทั้งหมด (พ่วงข้อมูลที่เกี่ยวข้อง) ---
-app.get('/api/admissions', async (req, res) => {
-    try {
-        const result = await sql.query`
-            SELECT 
-                ac.*,
-                p.prog_name,
-                d.dept_name,
-                f.faculty_name,
-                proj.project_name,
-                (SELECT plan_id FROM CRITERIA_PLANS WHERE criteria_id = ac.id FOR JSON PATH) AS CRITERIA_PLANS,
-                (SELECT subject_id, min_score, weight FROM CRITERIA_SUBJECTS WHERE criteria_id = ac.id FOR JSON PATH) AS CRITERIA_SUBJECTS
-            FROM ADMISSION_CRITERIA ac
-            LEFT JOIN PROGRAMS p ON ac.program_id = p.id
-            LEFT JOIN DEPARTMENTS d ON p.dept_id = d.id
-            LEFT JOIN FACULTIES f ON d.faculty_id = f.id
-            LEFT JOIN ADMISSION_PROJECTS proj ON ac.project_id = proj.id
-            ORDER BY ac.id DESC
-        `;
+app.get('/api/criteria', async (req, res) => {
+    // อ่านค่าประเภท DB จาก Header ที่ส่งมาจาก apiService.js
+    const dbType = req.headers['x-db-type'] || 'supabase'; 
 
-        const data = result.recordset.map(row => ({
-            ...row,
-            edu_status_req: row.edu_status_req ? JSON.parse(row.edu_status_req) : [],
-            CRITERIA_PLANS: row.CRITERIA_PLANS ? JSON.parse(row.CRITERIA_PLANS) : [],
-            CRITERIA_SUBJECTS: row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : []
-        }));
-        res.json(data);
+    try {
+        if (dbType === 'supabase') {
+            const { data, error } = await supabase
+                .from('ADMISSION_CRITERIA')
+                .select(`
+                    *,
+                    CRITERIA_PLANS ( plan_id ),
+                    CRITERIA_SUBJECTS ( subject_id, min_score, weight ),
+                    PROGRAMS ( id, prog_name, DEPARTMENTS ( id, dept_name, FACULTIES ( id, faculty_name ) ) ),
+                    ADMISSION_PROJECTS ( id, project_name )
+                `)
+                .order('id', { ascending: false });
+
+            if (error) return res.status(500).json({ error: error.message });
+            res.json(data);
+
+        } else if (dbType === 'sqlserver') {
+            const result = await sql.query`
+                SELECT 
+                    ac.*,
+                    p.prog_name,
+                    d.dept_name,
+                    f.faculty_name,
+                    proj.project_name,
+                    (SELECT plan_id FROM CRITERIA_PLANS WHERE criteria_id = ac.id FOR JSON PATH) AS CRITERIA_PLANS,
+                    (SELECT subject_id, min_score, weight FROM CRITERIA_SUBJECTS WHERE criteria_id = ac.id FOR JSON PATH) AS CRITERIA_SUBJECTS
+                FROM ADMISSION_CRITERIA ac
+                LEFT JOIN PROGRAMS p ON ac.program_id = p.id
+                LEFT JOIN DEPARTMENTS d ON p.dept_id = d.id
+                LEFT JOIN FACULTIES f ON d.faculty_id = f.id
+                LEFT JOIN ADMISSION_PROJECTS proj ON ac.project_id = proj.id
+                ORDER BY ac.id DESC
+            `;
+
+            const data = result.recordset.map(row => ({
+                ...row,
+                edu_status_req: row.edu_status_req ? JSON.parse(row.edu_status_req) : [],
+                CRITERIA_PLANS: row.CRITERIA_PLANS ? JSON.parse(row.CRITERIA_PLANS) : [],
+                CRITERIA_SUBJECTS: row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : []
+            }));
+            
+            res.json(data);
+        } else {
+            res.status(400).json({ error: 'Invalid database type' });
+        }
     } catch (err) {
+        console.error("Fetch Criteria Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- ดึงข้อมูลวิชาและแผนการเรียน ---
-app.get('/api/subjects', async (req, res) => {
+// ==========================================
+// --- NEW & UPDATED ENDPOINTS FOR CRITERIA ---
+// ==========================================
+
+// --- GET All Projects ---
+app.get('/api/projects', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
     try {
-        const result = await sql.query`SELECT * FROM SUBJECTS`;
-        res.json(result.recordset);
+        if (useSupabase) {
+            const { data, error } = await supabase.from('ADMISSION_PROJECTS').select('*');
+            if (error) throw error;
+            return res.json(data);
+        } else {
+            const result = await sql.query`SELECT * FROM ADMISSION_PROJECTS`;
+            return res.json(result.recordset);
+        }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/study-plans', async (req, res) => {
+// --- GET All Subjects ---
+app.get('/api/subjects', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
     try {
-        const result = await sql.query`SELECT * FROM STUDY_PLANS`;
-        res.json(result.recordset);
+        if (useSupabase) {
+            const { data, error } = await supabase.from('SUBJECTS').select('*');
+            if (error) throw error;
+            return res.json(data);
+        } else {
+            const result = await sql.query`SELECT * FROM SUBJECTS`;
+            return res.json(result.recordset);
+        }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// --- GET All Study Plans ---
+app.get('/api/study-plans', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    try {
+        if (useSupabase) {
+            const { data, error } = await supabase.from('STUDY_PLANS').select('*');
+            if (error) throw error;
+            return res.json(data);
+        } else {
+            const result = await sql.query`SELECT * FROM STUDY_PLANS`;
+            return res.json(result.recordset);
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- POST Create Criteria ---
+app.post('/api/criteria', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { criteria, study_plans, subjects } = req.body;
+    
+    try {
+        if (useSupabase) {
+            // 1. Insert Criteria
+            const { data: critData, error: critErr } = await supabase
+                .from('ADMISSION_CRITERIA')
+                .insert([criteria])
+                .select()
+                .single();
+            if (critErr) throw critErr;
+            
+            const newId = critData.id;
+            
+            // 2. Insert Plans
+            if (study_plans && study_plans.length > 0) {
+                const plansToInsert = study_plans.map(plan_id => ({ criteria_id: newId, plan_id }));
+                await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
+            }
+            
+            // 3. Insert Subjects
+            if (subjects && subjects.length > 0) {
+                const subsToInsert = subjects.map(s => ({ 
+                    criteria_id: newId, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight 
+                }));
+                await supabase.from('CRITERIA_SUBJECTS').insert(subsToInsert);
+            }
+            
+            res.status(201).json({ message: "Created successfully", id: newId });
+        } else {
+            // SQL Server Logic
+            const eduStatusStr = JSON.stringify(criteria.edu_status_req || []);
+            const result = await sql.query`
+                INSERT INTO ADMISSION_CRITERIA 
+                (academic_year, tcas_round, max_seats, min_gpax, edu_status_req, project_id, program_id, start_date, end_date)
+                OUTPUT INSERTED.id
+                VALUES 
+                (${criteria.academic_year}, ${criteria.tcas_round}, ${criteria.max_seats}, ${criteria.min_gpax}, ${eduStatusStr}, ${criteria.project_id}, ${criteria.program_id}, ${criteria.start_date}, ${criteria.end_date})
+            `;
+            const newId = result.recordset[0].id;
+            
+            if (study_plans && study_plans.length > 0) {
+                for (let plan_id of study_plans) {
+                    await sql.query`INSERT INTO CRITERIA_PLANS (criteria_id, plan_id) VALUES (${newId}, ${plan_id})`;
+                }
+            }
+            if (subjects && subjects.length > 0) {
+                for (let s of subjects) {
+                    await sql.query`INSERT INTO CRITERIA_SUBJECTS (criteria_id, subject_id, min_score, weight) VALUES (${newId}, ${s.subject_id}, ${s.min_score}, ${s.weight})`;
+                }
+            }
+            res.status(201).json({ message: "Created successfully", id: newId });
+        }
+    } catch (err) {
+        console.error("POST Criteria Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- PUT Update Criteria ---
+app.put('/api/criteria/:id', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { id } = req.params;
+    const { criteria, study_plans, subjects } = req.body;
+    
+    try {
+        if (useSupabase) {
+            const { error: critErr } = await supabase.from('ADMISSION_CRITERIA').update(criteria).eq('id', id);
+            if (critErr) throw critErr;
+            
+            // ลบของเก่าออก
+            await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', id);
+            await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', id);
+            
+            // แอดของใหม่เข้าไป
+            if (study_plans && study_plans.length > 0) {
+                const plansToInsert = study_plans.map(plan_id => ({ criteria_id: id, plan_id }));
+                await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
+            }
+            if (subjects && subjects.length > 0) {
+                const subsToInsert = subjects.map(s => ({ 
+                    criteria_id: id, subject_id: s.subject_id, min_score: s.min_score, weight: s.weight 
+                }));
+                await supabase.from('CRITERIA_SUBJECTS').insert(subsToInsert);
+            }
+            res.json({ message: "Updated successfully" });
+        } else {
+            const eduStatusStr = JSON.stringify(criteria.edu_status_req || []);
+            await sql.query`
+                UPDATE ADMISSION_CRITERIA SET
+                    academic_year = ${criteria.academic_year},
+                    tcas_round = ${criteria.tcas_round},
+                    max_seats = ${criteria.max_seats},
+                    min_gpax = ${criteria.min_gpax},
+                    edu_status_req = ${eduStatusStr},
+                    project_id = ${criteria.project_id},
+                    program_id = ${criteria.program_id},
+                    start_date = ${criteria.start_date},
+                    end_date = ${criteria.end_date}
+                WHERE id = ${id}
+            `;
+            
+            await sql.query`DELETE FROM CRITERIA_PLANS WHERE criteria_id = ${id}`;
+            await sql.query`DELETE FROM CRITERIA_SUBJECTS WHERE criteria_id = ${id}`;
+            
+            if (study_plans && study_plans.length > 0) {
+                for (let plan_id of study_plans) {
+                    await sql.query`INSERT INTO CRITERIA_PLANS (criteria_id, plan_id) VALUES (${id}, ${plan_id})`;
+                }
+            }
+            if (subjects && subjects.length > 0) {
+                for (let s of subjects) {
+                    await sql.query`INSERT INTO CRITERIA_SUBJECTS (criteria_id, subject_id, min_score, weight) VALUES (${id}, ${s.subject_id}, ${s.min_score}, ${s.weight})`;
+                }
+            }
+            res.json({ message: "Updated successfully" });
+        }
+    } catch (err) {
+        console.error("PUT Criteria Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- DELETE Criteria ---
+app.delete('/api/criteria/:id', async (req, res) => {
+    const useSupabase = isSupabaseRequest(req);
+    const { id } = req.params;
+    
+    try {
+        if (useSupabase) {
+            const { error } = await supabase.from('ADMISSION_CRITERIA').delete().eq('id', id);
+            if (error) {
+                if (error.code === '23503') return res.status(400).json({ error: "ไม่สามารถลบได้ เนื่องจากยังมีผู้สมัครที่ใช้เกณฑ์นี้" });
+                throw error;
+            }
+            res.json({ message: "Deleted successfully" });
+        } else {
+            try {
+                await sql.query`DELETE FROM ADMISSION_CRITERIA WHERE id = ${id}`;
+                res.json({ message: "Deleted successfully" });
+            } catch (dbErr) {
+                // MS SQL constraint error
+                if (dbErr.number === 547) return res.status(400).json({ error: "ไม่สามารถลบได้ เนื่องจากยังมีผู้สมัครที่ใช้เกณฑ์นี้" });
+                throw dbErr;
+            }
+        }
+    } catch (err) {
+        console.error("DELETE Criteria Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 app.listen(PORT, () => {
     console.log(`Server is running at http://localhost:${PORT}`);

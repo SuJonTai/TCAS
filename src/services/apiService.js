@@ -45,6 +45,10 @@ export const fetchApplicants = (dbType) => {
   return apiFetch('/api/applicants', dbType);
 };
 
+export const fetchCriteria = (dbType) => {
+  return apiFetch('/api/criteria', dbType);
+};
+
 export const loginUser = (dbType, credentials) => {
   return apiFetch('/api/login', dbType, {
     method: 'POST',

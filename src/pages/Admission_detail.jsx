@@ -4,7 +4,10 @@ import {
   ArrowLeft, BookOpen, Users, ClipboardCheck, 
   Building2, Layers, GraduationCap, School, Calendar, Target
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+
+// --- นำเข้า Context และ API ---
+import { useDatabase } from "@/context/DatabaseContext"
+import { apiFetch } from "@/services/apiService"
 
 // ฟังก์ชันแปลงวันที่แบบไทย
 const formatDate = (dateString) => {
@@ -144,51 +147,31 @@ function RoundCard({ round }) {
 
 export default function AdmissionDetailPage() {
   const { id } = useParams()
+  const { dbType } = useDatabase() // <-- ดึงประเภทฐานข้อมูล
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchDetail = async () => {
-      // เพิ่มการดึงข้อมูล CRITERIA_SUBJECTS และ SUBJECTS ตรงนี้
-      const { data: progData, error } = await supabase
-        .from('PROGRAMS')
-        .select(`
-          id,
-          prog_name,
-          DEPARTMENTS (
-            dept_name,
-            FACULTIES ( faculty_name )
-          ),
-          ADMISSION_CRITERIA (
-            id,
-            tcas_round,
-            max_seats,
-            min_gpax,
-            academic_year,
-            edu_status_req,
-            start_date,
-            end_date,
-            ADMISSION_PROJECTS ( project_name ),
-            CRITERIA_SUBJECTS (
-              min_score,
-              weight,
-              SUBJECTS ( subject_name )
-            )
-          )
-        `)
-        .eq('id', id)
-        .single()
-      
-      if (!error && progData) {
-        if (progData.ADMISSION_CRITERIA) {
-          progData.ADMISSION_CRITERIA.sort((a, b) => a.tcas_round - b.tcas_round);
+      try {
+        setLoading(true);
+        // เรียกใช้ apiFetch แทนการใช้ Supabase ตรงๆ
+        const progData = await apiFetch(`/api/programs/${id}`, dbType);
+        
+        if (progData) {
+          if (progData.ADMISSION_CRITERIA) {
+            progData.ADMISSION_CRITERIA.sort((a, b) => a.tcas_round - b.tcas_round);
+          }
+          setData(progData);
         }
-        setData(progData);
+      } catch (error) {
+        console.error("Error fetching program details:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false)
     }
     fetchDetail()
-  }, [id])
+  }, [id, dbType])
 
   if (loading) return <div className="p-12 text-center text-muted-foreground">กำลังโหลดข้อมูล...</div>
   if (!data) return <div className="p-12 text-center text-red-500">ไม่พบข้อมูลสาขาวิชานี้</div>

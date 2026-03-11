@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { PlusCircle, CheckCircle2, Trash2, Pencil, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+// นำเข้า Context และ API Helper
+import { useDatabase } from "@/context/DatabaseContext";
+import { apiFetch } from "@/services/apiService";
 
 export default function SuperAdminCriteria() {
+  const { dbType } = useDatabase(); // ดึงประเภท DB ปัจจุบัน (supabase หรือ sqlserver)
+
   const [facultiesDB, setFacultiesDB] = useState([]);
   const [projectsDB, setProjectsDB] = useState([]);
   const [subjectsDB, setSubjectsDB] = useState([]);
@@ -32,46 +36,49 @@ export default function SuperAdminCriteria() {
 
   const [criteriaForm, setCriteriaForm] = useState(initialFormState);
 
+  // เปลี่ยนมาใช้ API Fetch ผ่าน Backend แทน Supabase โดยตรง
   const fetchData = async () => {
-    const [{ data: facs }, { data: projs }, { data: subs }, { data: plans }, { data: crits }] = await Promise.all([
-      supabase.from('FACULTIES').select('id, faculty_name, DEPARTMENTS ( id, dept_name, PROGRAMS ( id, prog_name ) )'),
-      supabase.from('ADMISSION_PROJECTS').select('*'),
-      supabase.from('SUBJECTS').select('*'),
-      supabase.from('STUDY_PLANS').select('*'),
-      supabase.from('ADMISSION_CRITERIA').select(`
-        *,
-        CRITERIA_PLANS ( plan_id ),
-        CRITERIA_SUBJECTS ( subject_id, min_score, weight )
-      `).order('id', { ascending: false })
-    ]);
-    if (facs) setFacultiesDB(facs);
-    if (projs) setProjectsDB(projs);
-    if (subs) setSubjectsDB(subs);
-    if (plans) setPlansDB(plans);
-    if (crits) setCriteriaList(crits);
+    try {
+      const [facs, projs, subs, plans, crits] = await Promise.all([
+        apiFetch('/api/faculties', dbType),
+        apiFetch('/api/projects', dbType),
+        apiFetch('/api/subjects', dbType),
+        apiFetch('/api/study-plans', dbType),
+        apiFetch('/api/criteria', dbType)
+      ]);
+      
+      if (facs) setFacultiesDB(facs);
+      if (projs) setProjectsDB(projs);
+      if (subs) setSubjectsDB(subs);
+      if (plans) setPlansDB(plans);
+      if (crits) setCriteriaList(crits);
+    } catch (error) {
+      console.error("Error fetching criteria data:", error);
+    }
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // โหลดข้อมูลใหม่ทุกครั้งที่มีการเปลี่ยน dbType
+  }, [dbType]);
 
   const availableDeptsForCriteria = useMemo(() => {
     if (!criteriaForm.faculty_id) return [];
     const faculty = facultiesDB.find(f => f.id.toString() === criteriaForm.faculty_id);
-    return faculty ? faculty.DEPARTMENTS : [];
+    return faculty ? (faculty.DEPARTMENTS || []) : [];
   }, [criteriaForm.faculty_id, facultiesDB]);
 
   const availableProgramsForCriteria = useMemo(() => {
     if (!criteriaForm.dept_id) return [];
     const dept = availableDeptsForCriteria.find(d => d.id.toString() === criteriaForm.dept_id);
-    return dept ? dept.PROGRAMS : [];
+    return dept ? (dept.PROGRAMS || []) : [];
   }, [criteriaForm.dept_id, availableDeptsForCriteria]);
 
   const handleEdit = (criteria) => {
     let fId = "", dId = "";
     for (const f of facultiesDB) {
-      for (const d of f.DEPARTMENTS) {
-        if (d.PROGRAMS.some(p => p.id === criteria.program_id)) {
+      for (const d of (f.DEPARTMENTS || [])) {
+        if ((d.PROGRAMS || []).some(p => p.id === criteria.program_id)) {
           fId = f.id.toString();
           dId = d.id.toString();
           break;
@@ -112,20 +119,13 @@ export default function SuperAdminCriteria() {
 
   const handleDelete = async (id) => {
     if (window.confirm("คุณแน่ใจหรือไม่ที่จะลบเกณฑ์การรับสมัครนี้? ข้อมูลนี้จะไม่สามารถกู้คืนได้")) {
-      const { error } = await supabase.from('ADMISSION_CRITERIA').delete().eq('id', id);
-      
-      if (error) {
-        if (error.code === '23503') {
-          return alert("ไม่สามารถลบได้ เนื่องจากยังมีผู้สมัครที่ใช้เกณฑ์นี้");
-        } else {
-          alert("เกิดข้อผิดพลาดในการลบ: " + error.message);
-        }
-      } else {
+      try {
+        await apiFetch(`/api/criteria/${id}`, dbType, { method: 'DELETE' });
         alert("ลบข้อมูลสำเร็จ");
         fetchData(); 
-        if (editingId === id) {
-          cancelEdit(); 
-        }
+        if (editingId === id) cancelEdit(); 
+      } catch (error) {
+        alert("เกิดข้อผิดพลาดในการลบ: " + error.message);
       }
     }
   };
@@ -138,12 +138,8 @@ export default function SuperAdminCriteria() {
   const handleCriteriaSubmit = async (e) => {
     e.preventDefault();
 
-    // --- ตรวจสอบข้อมูลซ้ำ (Duplicate Validation) ---
-    // ป้องกันการเพิ่มข้อมูล คณะ/ภาค/สาขา และ โครงการ ที่ซ้ำกันในรอบและปีเดียวกัน
     const isDuplicate = criteriaList.some(crit => {
-      // ถ้ากำลังแก้ไขอยู่ ให้ข้ามการเช็คตัวเอง
       if (editingId && crit.id === editingId) return false;
-
       return (
         crit.project_id?.toString() === criteriaForm.project_id &&
         crit.program_id?.toString() === criteriaForm.program_id &&
@@ -155,7 +151,6 @@ export default function SuperAdminCriteria() {
     if (isDuplicate) {
       return alert("ไม่สามารถเพิ่มได้: มีโครงการและสาขาวิชานี้อยู่ในระบบแล้ว (สำหรับปีการศึกษาและรอบนี้)");
     }
-    // ----------------------------------------------
 
     const safeEduStatusReq = criteriaForm.edu_status_req || [];
     const hasStatus = safeEduStatusReq.some(req => ["studying", "graduated"].includes(req));
@@ -195,49 +190,36 @@ export default function SuperAdminCriteria() {
       end_date: criteriaForm.end_date 
     };
 
-    let targetCriteriaId = editingId;
+    try {
+      // แพ็คข้อมูลทั้งหมดส่งให้ Backend จัดการ Transaction ทั้ง Criteria, Plans และ Subjects
+      const bodyData = {
+        criteria: payload,
+        study_plans: criteriaForm.study_plans,
+        subjects: criteriaForm.subjects
+      };
 
-    if (editingId) {
-      const { error: updateError } = await supabase.from('ADMISSION_CRITERIA').update(payload).eq('id', editingId);
-      if (updateError) {
-        setCriteriaLoading(false);
-        return alert("Error Updating Criteria: " + updateError.message);
+      if (editingId) {
+        await apiFetch(`/api/criteria/${editingId}`, dbType, {
+          method: 'PUT',
+          body: JSON.stringify(bodyData)
+        });
+      } else {
+        await apiFetch('/api/criteria', dbType, {
+          method: 'POST',
+          body: JSON.stringify(bodyData)
+        });
       }
-      
-      await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', editingId);
-      await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', editingId);
 
-    } else {
-      const { data: criteriaData, error: insertError } = await supabase.from('ADMISSION_CRITERIA').insert([payload]).select();
-      if (insertError) {
-        setCriteriaLoading(false);
-        return alert("Error Creating Criteria: " + insertError.message);
-      }
-      targetCriteriaId = criteriaData[0].id;
+      setCriteriaSuccess(true);
+      setEditingId(null);
+      setCriteriaForm(initialFormState);
+      fetchData(); 
+    } catch (error) {
+      alert("Error saving criteria: " + error.message);
+    } finally {
+      setCriteriaLoading(false);
+      setTimeout(() => setCriteriaSuccess(false), 3000);
     }
-
-    if (criteriaForm.study_plans.length > 0) {
-      const plansToInsert = criteriaForm.study_plans.map(planId => ({ criteria_id: targetCriteriaId, plan_id: parseInt(planId) }));
-      await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
-    }
-
-    if (criteriaForm.subjects.length > 0) {
-      const subjectsToInsert = criteriaForm.subjects.map(sub => ({
-        criteria_id: targetCriteriaId,
-        subject_id: parseInt(sub.subject_id), 
-        min_score: parseFloat(sub.min_score) || 0,
-        weight: parseFloat(sub.weight) || 0
-      }));
-      await supabase.from('CRITERIA_SUBJECTS').insert(subjectsToInsert);
-    }
-
-    setCriteriaLoading(false);
-    setCriteriaSuccess(true);
-    setEditingId(null);
-    setCriteriaForm(initialFormState);
-    fetchData(); 
-    
-    setTimeout(() => setCriteriaSuccess(false), 3000);
   };
 
   const addSubjectRow = () => {
