@@ -10,13 +10,13 @@ import { useSession, signOut } from "next-auth/react"
 const navLinks = [
   { href: "/", label: "หน้าหลัก" },
   { href: "/admission", label: "เกณฑ์รับสมัคร" },
-  { href: "/student/details", label: "ข้อมูลผู้สมัคร" },
+  { href: "/student-details", label: "ข้อมูลผู้สมัคร" },
   { href: "/apply", label: "สมัครเรียน" },
   { href: "/staff", label: "สำหรับเจ้าหน้าที่" },
   { href: "/login", label: "เข้าสู่ระบบ" },
-  { href: "/staff/super-admin/accounts", label: "จัดการบัญชี" },
-  { href: "/staff/super-admin/criteria", label: "จัดการเกณฑ์" },
-  { href: "/staff/super-admin/academic", label: "จัดการข้อมูลการศึกษา" }
+  { href: "/superadmin/acc", label: "จัดการบัญชี" },
+  { href: "/superadmin/criteria", label: "จัดการเกณฑ์" },
+  { href: "/superadmin/academic", label: "จัดการข้อมูลการศึกษา" }
 ]
 
 export default function Navbar() {
@@ -42,16 +42,16 @@ export default function Navbar() {
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {
-    const needsLogin = ["/apply", "/staff", "/student/details", "/staff/super-admin/academic", "/staff/super-admin/accounts", "/staff/super-admin/criteria"].includes(href);
+    const needsLogin = ["/apply", "/staff", "/student-details", "/superadmin/academic", "/superadmin/acc", "/superadmin/criteria"].includes(href);
     
     // Redirect guests to login
     if (!isLogin && needsLogin) return "/login"
 
     // Prevent staff from accessing applicant pages
-    if (isLogin && role === "staff" && ["/apply", "/student/details"].includes(href)) return "/staff"
+    if (isLogin && role === "staff" && ["/apply", "/student-details"].includes(href)) return "/staff"
 
     // Prevent applicants from accessing staff pages
-    if (isLogin && (role === "applicant" || role === "student") && href.startsWith("/staff")) return "/apply"
+    if (isLogin && (role === "applicant" || role === "student") && (href.startsWith("/staff") || href.startsWith("/superadmin"))) return "/apply"
 
     return href
   }
@@ -60,8 +60,8 @@ export default function Navbar() {
   // Filter out links the user shouldn't even see based on their role
   const visibleLinks = navLinks.filter(link => {
     const isApply = link.href === "/apply";
-    const isStudentScore = link.href === "/student/details";
-    const isStaffLink = link.href.startsWith("/staff"); // Catches links under /staff 
+    const isStudentScore = link.href === "/student-details";
+    const isStaffLink = link.href.startsWith("/staff") || link.href.startsWith("/superadmin");
 
     // 1. Hide Applicant-only links from Staff
     if (isLogin && role === "staff" && (isApply || isStudentScore)) return false;
@@ -70,7 +70,7 @@ export default function Navbar() {
     if (isLogin && (role === "applicant" || role === "student") && isStaffLink) return false;
     
     // 3. Hide restricted links from Guests (Allow them to see /apply and /staff so they are prompted to login)
-    if (!isLogin && (isStudentScore || link.href.startsWith("/staff"))) return false;
+    if (!isLogin && (isStudentScore || link.href.startsWith("/staff") || link.href.startsWith("/superadmin"))) return false;
 
     return true;
   });
