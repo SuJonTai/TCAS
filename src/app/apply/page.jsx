@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle2, AlertCircle, FileText, School, Upload, FileCheck } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 const rounds = [
   { value: "1", label: "รอบที่ 1 - Portfolio" },
@@ -33,36 +32,34 @@ export default function Apply() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const userId = localStorage.getItem("user_id");
-
-      if (!userId) return;
-
+      setLoading(true);
       try {
-        const { data: userData } = await supabase
-          .from('USERS')
-          .select('gpax_5_term, current_level')
-          .eq('id', userId)
-          .single();
-        if (userData) setUserProfile(userData);
+        const [userRes, facRes, critRes] = await Promise.all([
+          fetch('/api/users/me'),
+          fetch('/api/academic'),
+          fetch('/api/criteria')
+        ]);
 
-        const { data: facData, error: facError } = await supabase
-          .from('FACULTIES')
-          .select(`id, faculty_name, DEPARTMENTS (id, dept_name, PROGRAMS (id, prog_name))`);
-        if (facError) throw facError;
-        setFacultiesDB(facData || []);
+        if (userRes.ok) {
+           const userData = await userRes.json();
+           setUserProfile(userData);
+        }
 
-        const { data: critData, error: critError } = await supabase
-          .from('ADMISSION_CRITERIA')
-          .select(`
-            *,
-            ADMISSION_PROJECTS (id, project_name)
-          `);
-        if (critError) throw critError;
-        setCriteriaDB(critData || []);
+        if (facRes.ok) {
+           const facData = await facRes.json();
+           setFacultiesDB(facData || []);
+        }
+
+        if (critRes.ok) {
+           const critData = await critRes.json();
+           setCriteriaDB(critData || []);
+        }
 
       } catch (error) {
         console.error("Error fetching data:", error);
         setErrorMessage("เกิดข้อผิดพลาดในการโหลดข้อมูล กรุณารีเฟรชหน้าเว็บ");
+      } finally {
+        setLoading(false);
       }
     };
     fetchData();
@@ -75,10 +72,12 @@ export default function Apply() {
     
     const projectMap = new Map();
     criteriaForRound.forEach(c => {
-      if (c.project_id && !projectMap.has(c.project_id)) {
-        projectMap.set(c.project_id, {
-          id: c.project_id,
-          name: c.ADMISSION_PROJECTS?.project_name || `โครงการ ${c.project_id}`
+      // In MongoDB, the project is under c.PROJECTS object or referenced by c.project_id
+      const projId = c.PROJECTS?._id || c.project_id;
+      if (projId && !projectMap.has(projId)) {
+        projectMap.set(projId, {
+          id: projId,
+          name: c.PROJECTS?.project_name || `โครงการ ${projId}`
         });
       }
     });
@@ -91,39 +90,51 @@ export default function Apply() {
     return criteriaDB
       .filter(c => 
         c.tcas_round?.toString() === selectedRound && 
-        c.project_id?.toString() === selectedProject
+        (c.PROJECTS?._id?.toString() === selectedProject || c.project_id?.toString() === selectedProject)
       )
-      .map(c => c.program_id);
+      .map(c => c.PROGRAM?._id || c.program_id);
   }, [selectedRound, selectedProject, criteriaDB]);
 
   const availableFaculties = useMemo(() => {
     if (!validProgramIds.length) return [];
+    // Faculties DB from /api/academic schema: array of { ..., DEPARTMENTS: [ { ..., PROGRAMS: [ ... ] } ] }
     return facultiesDB.filter(f => 
       f.DEPARTMENTS?.some(d => 
-        d.PROGRAMS?.some(p => validProgramIds.includes(p.id))
+        d.PROGRAMS?.some(p => validProgramIds.includes(p._id || p.id))
       )
     );
   }, [facultiesDB, validProgramIds]);
 
   const availablePrograms = useMemo(() => {
     if (!selectedFaculty || !validProgramIds.length) return [];
-    const faculty = facultiesDB.find(f => f.id.toString() === selectedFaculty);
+    const faculty = facultiesDB.find(f => (f._id || f.id).toString() === selectedFaculty);
     
     return faculty?.DEPARTMENTS?.flatMap(d => 
-      d.PROGRAMS.map(p => ({ id: p.id, name: p.prog_name }))
+      d.PROGRAMS.map(p => ({ id: p._id || p.id, name: p.prog_name }))
     ).filter(p => validProgramIds.includes(p.id)) || [];
   }, [selectedFaculty, facultiesDB, validProgramIds]);
 
   const uploadFile = async (file, bucket) => {
     if (!file) return "";
     const userId = localStorage.getItem("user_id");
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}_${bucket}_${Date.now()}.${fileExt}`;
     
-    const { data, error } = await supabase.storage.from(bucket).upload(fileName, file);
-    if (error) throw error;
-    
-    return supabase.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("bucket", bucket);
+    formData.append("userId", userId);
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+       const err = await res.json();
+       throw new Error(err.error || "Failed to upload file");
+    }
+
+    const { publicUrl } = await res.json();
+    return publicUrl;
   };
 
   const handleSubmit = async (e) => {
@@ -132,14 +143,13 @@ export default function Apply() {
     setErrorMessage("");
 
     try {
-      const userId = localStorage.getItem("user_id");
       if (!userProfile?.gpax_5_term) throw new Error("กรุณาระบุ GPAX ในหน้าข้อมูลการศึกษาก่อนสมัคร");
       if (!transcriptFile) throw new Error("กรุณาอัปโหลดไฟล์ระเบียนแสดงผลการเรียน (Transcript)");
 
       const matchingCriteria = criteriaDB.find(
         (c) => c.tcas_round?.toString() === selectedRound && 
-               c.program_id?.toString() === selectedProgram &&
-               c.project_id?.toString() === selectedProject
+               (c.PROGRAM?._id?.toString() === selectedProgram || c.program_id?.toString() === selectedProgram) &&
+               (c.PROJECTS?._id?.toString() === selectedProject || c.project_id?.toString() === selectedProject)
       );
 
       if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่ตรงกับข้อมูลที่เลือก");
@@ -149,18 +159,22 @@ export default function Apply() {
         uploadFile(transcriptFile, 'transcripts')
       ]);
 
-      const { error: insertError } = await supabase
-        .from('APPLICATION')
-        .insert([{
-          user_id: parseInt(userId),
-          criteria_id: matchingCriteria.id,
+      const submitRes = await fetch('/api/applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          criteria_id: matchingCriteria._id || matchingCriteria.id,
           gpax: userProfile.gpax_5_term,
-          status: 'pending',
           portfolio_url: portfolioUrl,
           transcript_url: transcriptUrl 
-        }]);
+        })
+      });
 
-      if (insertError) throw insertError;
+      if (!submitRes.ok) {
+        const err = await submitRes.json();
+         throw new Error(err.error || "Failed to submit application");
+      }
+
       setShowSuccess(true);
     } catch (err) {
       setErrorMessage(err.message);

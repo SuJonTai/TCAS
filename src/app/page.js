@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react"
 import Link from "next/link"
+import { useSession } from "next-auth/react"
 import {
   CalendarDays,
   BookOpen,
@@ -15,7 +16,6 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase" 
 
 function AnnouncementBanner() {
   return (
@@ -28,8 +28,9 @@ function AnnouncementBanner() {
 }
 
 function HeroSection() {
-  const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
-  const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+  const { data: session } = useSession()
+  const isLogin = !!session;
+  const role = session?.user?.role || null;
   const isStudent = role === "applicant" || role === "student";
 
   return (
@@ -53,7 +54,6 @@ function HeroSection() {
             </Button>
           </Link>
 
-          {/* Conditional Button Rendering based on Login Status and Role */}
           {!isLogin ? (
             <Link href="/login">
               <Button size="lg" className="gap-2">
@@ -68,11 +68,11 @@ function HeroSection() {
                 สมัครเรียน
               </Button>
             </Link>
-          ) : role === "staff" ? (
-            <Link href="/staff">
+          ) : role === "staff" || role === "super_admin" ? (
+            <Link href={role === "super_admin" ? "/superadmin" : "/staff"}>
               <Button size="lg" className="gap-2">
                 <Users className="h-4 w-4" />
-                จัดการระบบ (Staff)
+                จัดการระบบ ({role === "super_admin" ? "Admin" : "Staff"})
               </Button>
             </Link>
           ) : null}
@@ -96,7 +96,7 @@ function StatsCards() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
           <Card key={stat.label} className="border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
-            <CardContent className="flex items-start gap-4 p-5">
+             <CardContent className="flex items-start gap-4 p-5">
               <div className="rounded-lg bg-primary/10 p-2.5">
                 <stat.icon className="h-5 w-5 text-primary" />
               </div>
@@ -122,29 +122,22 @@ function TopFacultiesChart() {
   useEffect(() => {
     const fetchTopFaculties = async () => {
       try {
-        const { data, error } = await supabase
-          .from('APPLICATION')
-          .select(`
-            ADMISSION_CRITERIA (
-              PROGRAMS (
-                DEPARTMENTS (
-                  FACULTIES ( faculty_name )
-                )
-              )
-            )
-          `)
-
-        if (error) throw error
+        const res = await fetch('/api/applications')
+        if (!res.ok) throw new Error("Failed to fetch applications")
+        const data = await res.json()
 
         const counts = {}
         data?.forEach(app => {
-          const facultyName = app.ADMISSION_CRITERIA?.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name
+          // Fallback parsing over mapped populated relations in GET /api/applications schema
+          const facultyName = app.criteria_id?.PROGRAM?.DEPT?.FACULTY?.faculty_name || 
+                              app.ADMISSION_CRITERIA?.PROGRAM?.DEPT?.FACULTY?.faculty_name ||
+                              app.ADMISSION_CRITERIA?.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name;
           if (facultyName) {
             counts[facultyName] = (counts[facultyName] || 0) + 1
           }
         })
 
-        const sortedData = Object.entries(counts)
+         const sortedData = Object.entries(counts)
           .map(([name, applicants]) => ({ name, applicants }))
           .sort((a, b) => b.applicants - a.applicants)
           .slice(0, 5)
@@ -178,7 +171,7 @@ function TopFacultiesChart() {
         </CardHeader>
         <CardContent className="pt-4">
           {loading ? (
-            <div className="flex h-32 items-center justify-center text-muted-foreground">
+             <div className="flex h-32 items-center justify-center text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin mr-2" />
               <span>กำลังโหลดข้อมูล...</span>
             </div>
@@ -188,13 +181,13 @@ function TopFacultiesChart() {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              {topFaculties.map((faculty, i) => (
+               {topFaculties.map((faculty, i) => (
                 <div key={faculty.name} className="flex items-center gap-4">
                   <span className="w-6 text-right text-sm font-semibold text-muted-foreground">
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-baseline justify-between gap-2">
+                     <div className="mb-1 flex items-baseline justify-between gap-2">
                       <span className="truncate text-sm font-medium text-foreground">
                         {faculty.name}
                       </span>
@@ -202,17 +195,17 @@ function TopFacultiesChart() {
                         {faculty.applicants.toLocaleString()}
                       </span>
                     </div>
-                    <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
+                     <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary transition-all duration-700"
                         style={{
                           width: max > 0 ? `${(faculty.applicants / max) * 100}%` : '0%',
-                          opacity: 1 - i * 0.15,
+                           opacity: 1 - i * 0.15,
                         }}
                       />
                     </div>
                   </div>
-                </div>
+                 </div>
               ))}
             </div>
           )}

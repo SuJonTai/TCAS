@@ -7,7 +7,6 @@ import {
   ArrowLeft, BookOpen, Users, ClipboardCheck, 
   Building2, Layers, GraduationCap, School, Calendar, Target
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 
 const formatDate = (dateString) => {
   if (!dateString) return "";
@@ -148,42 +147,71 @@ export default function AdmissionDetailPage() {
 
   useEffect(() => {
     const fetchDetail = async () => {
-       const { data: progData, error } = await supabase
-        .from('PROGRAMS')
-        .select(`
-          id,
-          prog_name,
-          DEPARTMENTS (
-            dept_name,
-            FACULTIES ( faculty_name )
-          ),
-          ADMISSION_CRITERIA (
-            id,
-            tcas_round,
-            max_seats,
-            min_gpax,
-            academic_year,
-            edu_status_req,
-            start_date,
-            end_date,
-            ADMISSION_PROJECTS ( project_name ),
-            CRITERIA_SUBJECTS (
-              min_score,
-              weight,
-              SUBJECTS ( subject_name )
-            )
-          )
-        `)
-        .eq('id', id)
-        .single()
-      
-      if (!error && progData) {
-        if (progData.ADMISSION_CRITERIA) {
-          progData.ADMISSION_CRITERIA.sort((a, b) => a.tcas_round - b.tcas_round);
+      try {
+        const [acadRes, critRes, subRes] = await Promise.all([
+          fetch('/api/academic'),
+          fetch('/api/criteria'),
+          fetch('/api/academic/subject')
+        ]);
+        
+        if (acadRes.ok && critRes.ok && subRes.ok) {
+          const faculties = await acadRes.json();
+          const allCriteria = await critRes.json();
+          const allSubjects = await subRes.json();
+
+          // Find the specific program and its parents
+          let targetProgram = null;
+          let targetDept = null;
+          let targetFaculty = null;
+
+          // We accept 'id' from URL parameters. It could be string _id or numeric id depending on data source.
+          for (const f of faculties) {
+             for (const d of f.DEPARTMENTS) {
+                const foundProg = d.PROGRAMS.find(p => String(p.id) === String(id) || String(p._id) === String(id));
+                if (foundProg) {
+                   targetProgram = foundProg;
+                   targetDept = d;
+                   targetFaculty = f;
+                   break;
+                }
+             }
+             if (targetProgram) break;
+          }
+
+          if (targetProgram) {
+            // Map the criteria for this program
+            const progCriteria = allCriteria.filter(c => String(c.program_id) === String(targetProgram.id) || String(c.PROGRAM?._id) === String(targetProgram._id || targetProgram.id));
+            
+            // Map subjects into criteria
+            progCriteria.forEach(c => {
+               if (c.CRITERIA_SUBJECTS && Array.isArray(c.CRITERIA_SUBJECTS)) {
+                 c.CRITERIA_SUBJECTS.forEach(cs => {
+                    const matchedSub = allSubjects.find(s => s.id === cs.subject_id || String(s._id) === String(cs.subject_id));
+                    cs.SUBJECTS = { subject_name: matchedSub ? matchedSub.subject_name : "วิชาที่ถูกลบ" };
+                 });
+               }
+            });
+            
+            progCriteria.sort((a, b) => a.tcas_round - b.tcas_round);
+            
+            // Structure it back to match the component's expectations
+            const reconstructedData = {
+               ...targetProgram,
+               DEPARTMENTS: {
+                  ...targetDept,
+                  FACULTIES: targetFaculty
+               },
+               ADMISSION_CRITERIA: progCriteria
+            };
+            
+            setData(reconstructedData);
+          }
         }
-        setData(progData);
+      } catch (error) {
+         console.error("Error fetching detail:", error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false)
     }
     fetchDetail()
   }, [id])

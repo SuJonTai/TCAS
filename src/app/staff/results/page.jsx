@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, Suspense } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { ArrowLeft, Filter, FileDown, Users, Loader2, CheckCircle2, XCircle, Trash2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 import { jsPDF } from "jspdf"
 import { toPng } from "html-to-image"
 
@@ -33,57 +32,32 @@ function ApplicantListTableContent() {
 
   const fetchApplicants = async () => {
     setLoading(true)
+    
+    try {
+      const res = await fetch('/api/applications')
+      if (!res.ok) throw new Error("Failed to fetch applications")
+      
+      const data = await res.json()
+      
+      let filteredData = data
+      
+      if (roundFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.tcas_round === parseInt(roundFilter, 10))
+      if (programFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.program_id === parseInt(programFilter, 10))
+      if (facultyFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.PROGRAM.DEPT.faculty_id === parseInt(facultyFilter, 10))
 
-    let query = supabase.from('APPLICATION').select(`
-      id,
-      status,
-      gpax,
-      USERS ( 
-        first_name, 
-        last_name, 
-        edu_status, 
-        current_level,
-        plan_id,
-        STUDY_PLANS ( plan_name, plan_group ),
-        USER_SCORES ( subject_id, score_value )
-      ),
-      ADMISSION_CRITERIA!inner (
-         tcas_round,
-        program_id,
-        min_gpax,
-         edu_status_req,
-        min_level,
-        max_level,
-         CRITERIA_SUBJECTS ( subject_id, min_score, SUBJECTS ( subject_name ) ),
-        PROGRAMS!inner (
-          prog_name,
-           DEPARTMENTS!inner (
-            faculty_id,
-            FACULTIES ( faculty_name )
-           )
-        )
-      )
-    `)
-
-    if (roundFilter) query = query.eq('ADMISSION_CRITERIA.tcas_round', parseInt(roundFilter, 10))
-    if (programFilter) query = query.eq('ADMISSION_CRITERIA.program_id', parseInt(programFilter, 10))
-    if (facultyFilter) query = query.eq('ADMISSION_CRITERIA.PROGRAMS.DEPARTMENTS.faculty_id', parseInt(facultyFilter, 10))
-
-    const { data, error } = await query
-
-    if (!error && data) {
-      let formattedData = data.map(app => {
-         const criteria = app.ADMISSION_CRITERIA || {}
+      let formattedData = filteredData.map(app => {
+        const criteria = app.ADMISSION_CRITERIA || {}
         const user = app.USERS || {}
-         const userScores = user.USER_SCORES || []
+        const userScores = app.APPLICANT_SCORES || []
         const requiredSubjects = criteria.CRITERIA_SUBJECTS || []
+        const appInfo = app.APPLICANT_INFO || {}
         
-         const failReasons = []
+        const failReasons = []
 
-        const passGpax = (app.gpax || 0) >= (criteria.min_gpax || 0)
+        const passGpax = (appInfo.gpax || 0) >= (criteria.min_gpax || 0)
         if (!passGpax) failReasons.push("GPAX ไม่ถึงเกณฑ์")
         
-         let rawReqs = criteria.edu_status_req;
+        let rawReqs = criteria.edu_status_req;
         let reqs = [];
         if (Array.isArray(rawReqs)) {
           reqs = rawReqs; 
@@ -96,12 +70,12 @@ function ApplicantListTableContent() {
         const validStatuses = ["studying", "graduated"];
         const validTypes = ["high-school", "vocational", "high-vocational"];
 
-         const requiredStatuses = reqs.filter(r => validStatuses.includes(r));
+        const requiredStatuses = reqs.filter(r => validStatuses.includes(r));
         const requiredTypes = reqs.filter(r => validTypes.includes(r));
         
-         let rawUserEdu = user.edu_status;
+        let rawUserEdu = appInfo.edu_status;
         let userEduData = [];
-         if (Array.isArray(rawUserEdu)) {
+        if (Array.isArray(rawUserEdu)) {
           userEduData = rawUserEdu;
         } else if (typeof rawUserEdu === 'string') {
            try { userEduData = JSON.parse(rawUserEdu); } 
@@ -109,8 +83,7 @@ function ApplicantListTableContent() {
         }
         if (!Array.isArray(userEduData)) userEduData = rawUserEdu ? [rawUserEdu] : [];
 
-         const planName = user.STUDY_PLANS?.plan_name || "";
-        const dbPlanGroup = user.STUDY_PLANS?.plan_group || ""; 
+        const planName = appInfo.study_plan || "";
         let inferredPlanGroup = "";
 
         if (planName.includes("ปวช") || planName.includes("เตรียมวิศว")) {
@@ -122,63 +95,54 @@ function ApplicantListTableContent() {
         }
 
         const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.some(status => userEduData.includes(status));
-         const passEduType = requiredTypes.length === 0 || 
-                             requiredTypes.includes(dbPlanGroup) || 
-                            requiredTypes.includes(inferredPlanGroup);
+        const passEduType = requiredTypes.length === 0 || requiredTypes.includes(inferredPlanGroup);
 
         if (!passEduStatus) failReasons.push("สถานะการศึกษาไม่ตรงเกณฑ์");
-         if (!passEduType) failReasons.push(`วุฒิการศึกษาไม่ตรงเกณฑ์`);
-
-        const userLevel = user.current_level || 0
-         const minLevel = criteria.min_level || 0
-        const maxLevel = criteria.max_level || 99
-        const passLevel = userLevel >= minLevel && userLevel <= maxLevel
-         if (!passLevel) failReasons.push("ระดับชั้นไม่ตรงเกณฑ์")
+        if (!passEduType) failReasons.push(`วุฒิการศึกษาไม่ตรงเกณฑ์`);
 
         let passScores = true
-         let totalScore = 0 
+        let totalScore = 0 
         
         requiredSubjects.forEach(reqSub => {
            const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id)
           
           if (!userSubScore || userSubScore.score_value == null) {
             passScores = false
-            failReasons.push(`ไม่ได้กรอกคะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'}`)
+            failReasons.push(`ไม่ได้กรอกคะแนนที่จำเป็น`)
            } else {
              const scoreValue = parseFloat(userSubScore.score_value) || 0;
             
             if (scoreValue < reqSub.min_score) {
                passScores = false
-              failReasons.push(`คะแนน ${reqSub.SUBJECTS?.subject_name || 'วิชา'} ไม่ถึงขั้นต่ำ (${reqSub.min_score})`)
+              failReasons.push(`คะแนนไม่ถึงขั้นต่ำ (${reqSub.min_score})`)
             }
-            
             totalScore += scoreValue; 
           }
          })
 
-        const passAll = passGpax && passEduStatus && passEduType && passLevel && passScores
+        const passAll = passGpax && passEduStatus && passEduType && passScores
 
-         return {
-          id: app.id,
+        return {
+          id: app._id || app.id,
           name: `${user.first_name || 'ไม่ระบุ'} ${user.last_name || ''}`,
-          faculty: criteria.PROGRAMS?.DEPARTMENTS?.FACULTIES?.faculty_name || 'ไม่ระบุ',
-           major: criteria.PROGRAMS?.prog_name || 'ไม่ระบุ',
+          faculty: criteria.FACULTY?.faculty_name || 'ไม่ระบุ',
+          major: criteria.PROGRAM?.prog_name || 'ไม่ระบุ',
           round: criteria.tcas_round || '-',
-          gpa: app.gpax || 0.00,
-           minGpa: criteria.min_gpax || 0.00,
+          gpa: appInfo.gpax || 0.00,
+          minGpa: criteria.min_gpax || 0.00,
           totalScore: totalScore, 
           passAll,
-           failReasons,
+          failReasons,
           status: app.status
         }
        })
 
       setRawData(formattedData)
-    } else {
+    } catch (error) {
        console.error("Error fetching applications:", error)
+    } finally {
+      setLoading(false)
     }
-    
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -203,8 +167,11 @@ function ApplicantListTableContent() {
      const isConfirmed = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบใบสมัครของ "${name}"?\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`)
     if (isConfirmed) {
       try {
-        const { error } = await supabase.from('APPLICATION').delete().eq('id', id)
-         if (error) throw error
+        const res = await fetch(`/api/applications/${id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const errData = await res.json()
+          throw new Error(errData.error || "Failed to delete application")
+        }
         alert("ลบข้อมูลใบสมัครเรียบร้อยแล้ว")
         fetchApplicants()
        } catch (err) {

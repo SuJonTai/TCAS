@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Building2, CheckCircle2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 export default function SuperAdminAcademic() {
   const [facultiesDB, setFacultiesDB] = useState([]);
@@ -15,10 +14,15 @@ export default function SuperAdminAcademic() {
   const [projectForm, setProjectForm] = useState({ project_name: "" });
 
   const fetchFaculties = async () => {
-    const { data: facs } = await supabase.from('FACULTIES').select(`
-      id, faculty_name, DEPARTMENTS ( id, dept_name, PROGRAMS ( id, prog_name ) )
-    `);
-    if (facs) setFacultiesDB(facs);
+    try {
+      const res = await fetch('/api/academic');
+      if (res.ok) {
+        const facs = await res.json();
+        setFacultiesDB(facs);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => { 
@@ -38,56 +42,84 @@ export default function SuperAdminAcademic() {
 
   const handleFacultySubmit = async (e) => {
     e.preventDefault(); 
-     setAcademicLoading(true);
-    const { error } = await supabase.from('FACULTIES').insert([{ faculty_name: facultyForm.faculty_name }]);
-    setAcademicLoading(false);
-    
-    if (error) alert("Error: " + error.message);
-    else { 
+    setAcademicLoading(true);
+    try {
+      const res = await fetch('/api/academic/faculty', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ faculty_name: facultyForm.faculty_name })
+      });
+      if (!res.ok) throw new Error("Failed to create faculty");
+      
       showAcademicSuccess("เพิ่มคณะสำเร็จ!"); 
       setFacultyForm({ faculty_name: "" }); 
       fetchFaculties(); 
-     }
+    } catch (error) {
+      alert("Error: " + error.message);
+    } finally {
+      setAcademicLoading(false);
+    }
   };
 
   const handleDeptSubmit = async (e) => {
-     e.preventDefault(); 
+    e.preventDefault(); 
     setAcademicLoading(true);
-    const { error } = await supabase.from('DEPARTMENTS').insert([{ faculty_id: parseInt(deptForm.faculty_id), dept_name: deptForm.dept_name }]);
-    setAcademicLoading(false);
+    try {
+      const res = await fetch('/api/academic/department', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ faculty_id: parseInt(deptForm.faculty_id), dept_name: deptForm.dept_name })
+      });
+      if (!res.ok) throw new Error("Failed to create department");
 
-    if (error) alert("Error: " + error.message);
-    else { 
-       showAcademicSuccess("เพิ่มภาควิชาสำเร็จ!"); 
+      showAcademicSuccess("เพิ่มภาควิชาสำเร็จ!"); 
       setDeptForm({ faculty_id: "", dept_name: "" }); 
       fetchFaculties(); 
-     }
+    } catch (error) {
+       alert("Error: " + error.message);
+    } finally {
+      setAcademicLoading(false);
+    }
   };
 
   const handleProgSubmit = async (e) => {
     e.preventDefault(); 
     setAcademicLoading(true);
-     const { error } = await supabase.from('PROGRAMS').insert([{ dept_id: parseInt(progForm.dept_id), prog_name: progForm.prog_name }]);
-    setAcademicLoading(false);
+    try {
+      const res = await fetch('/api/academic/program', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dept_id: parseInt(progForm.dept_id), prog_name: progForm.prog_name })
+      });
+      if (!res.ok) throw new Error("Failed to create program");
 
-    if (error) alert("Error: " + error.message);
-    else { 
-       showAcademicSuccess("เพิ่มสาขาวิชาสำเร็จ!"); 
+      showAcademicSuccess("เพิ่มสาขาวิชาสำเร็จ!"); 
       setProgForm({ faculty_id: "", dept_id: "", prog_name: "" }); 
       fetchFaculties(); 
+    } catch (error) {
+      alert("Error: " + error.message);
+    } finally {
+      setAcademicLoading(false);
     }
   };
 
   const handleProjectSubmit = async (e) => {
-     e.preventDefault(); 
+    e.preventDefault(); 
     setAcademicLoading(true);
-     const { error } = await supabase.from('ADMISSION_PROJECTS').insert([{ project_name: projectForm.project_name }]);
-    setAcademicLoading(false);
+    try {
+      const res = await fetch('/api/academic/project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: projectForm.project_name })
+      });
+      if (!res.ok) throw new Error("Failed to create project");
 
-    if (error) alert("Error: " + error.message);
-    else { 
-       showAcademicSuccess("เพิ่มโครงการรับเข้าศึกษาสำเร็จ!"); 
+      showAcademicSuccess("เพิ่มโครงการรับเข้าศึกษาสำเร็จ!"); 
       setProjectForm({ project_name: "" }); 
+    } catch (error) {
+       alert("Error: " + error.message);
+    } finally {
+      setAcademicLoading(false);
     }
   };
 

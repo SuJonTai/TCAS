@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { ShieldAlert, CheckCircle2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
-import bcrypt from "bcryptjs";
 
 export default function SuperAdminStaff() {
   const [staffLoading, setStaffLoading] = useState(false);
@@ -16,23 +14,25 @@ export default function SuperAdminStaff() {
     e.preventDefault();
     setStaffLoading(true);
     
-    const salt = bcrypt.genSaltSync(10);
-    const hashedPassword = bcrypt.hashSync(staffForm.password, salt);
-
-    const { error } = await supabase.from("USERS").insert([{
-      citizen_id: staffForm.citizen_id,
-      password: hashedPassword,
-       first_name: staffForm.first_name,
-      last_name: staffForm.last_name,
-       role: "staff",
-    }]);
-
-    setStaffLoading(false);
-    if (error) alert("เกิดข้อผิดพลาด: " + error.message);
-     else {
+    try {
+      const res = await fetch("/api/users/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(staffForm)
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to create staff account");
+      }
+      
       setStaffSuccess(true);
       setStaffForm({ citizen_id: "", password: "", first_name: "", last_name: "" });
-       setTimeout(() => setStaffSuccess(false), 3000);
+      setTimeout(() => setStaffSuccess(false), 3000);
+    } catch (error) {
+       alert("เกิดข้อผิดพลาด: " + error.message);
+    } finally {
+      setStaffLoading(false);
     }
   };
 

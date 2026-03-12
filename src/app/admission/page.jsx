@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { Search, ChevronDown, ChevronRight, Building2, Layers, BookOpen, ArrowRight } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 
 const formatDate = (dateString) => {
   if (!dateString) return "";
@@ -63,9 +62,7 @@ function FacultyCard({ faculty }) {
     return sum + dept.PROGRAMS.reduce((pSum, prog) => pSum + (prog.ADMISSION_CRITERIA?.length || 0), 0)
   }, 0)
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('faculty-logos')
-    .getPublicUrl(`${faculty.id}.png`)
+  const publicUrl = `/logos/faculties/${faculty.id}.png`;
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
@@ -129,26 +126,33 @@ export default function AdmissionPage() {
   const [facultiesDB, setFacultiesDB] = useState([])
   const [loading, setLoading] = useState(true)
 
-useEffect(() => {
+  useEffect(() => {
     const fetchFaculties = async () => {
-      const { data, error } = await supabase
-        .from('FACULTIES')
-        .select(`
-          id, 
-          faculty_name, 
-          DEPARTMENTS (
-            id, 
-            dept_name, 
-            PROGRAMS (
-              id, 
-              prog_name,
-              ADMISSION_CRITERIA ( id, tcas_round, start_date, end_date ) 
-            )
-          )
-        `)
-      
-      if (!error && data) setFacultiesDB(data)
-      setLoading(false)
+      try {
+        const [acadRes, critRes] = await Promise.all([
+          fetch('/api/academic'),
+          fetch('/api/criteria')
+        ]);
+        
+        if (acadRes.ok && critRes.ok) {
+          const faculties = await acadRes.json();
+          const criteria = await critRes.json();
+          
+          faculties.forEach(f => {
+            f.DEPARTMENTS.forEach(d => {
+              d.PROGRAMS.forEach(p => {
+                p.ADMISSION_CRITERIA = criteria.filter(c => c.program_id === p.id);
+              });
+            });
+          });
+          
+          setFacultiesDB(faculties);
+        }
+      } catch (error) {
+        console.error("Error fetching admission data:", error);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchFaculties()
   }, [])

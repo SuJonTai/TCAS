@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { PlusCircle, CheckCircle2, Trash2, Pencil, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 export default function SuperAdminCriteria() {
   const [facultiesDB, setFacultiesDB] = useState([]);
@@ -35,22 +34,42 @@ export default function SuperAdminCriteria() {
   const [criteriaForm, setCriteriaForm] = useState(initialFormState);
 
   const fetchData = async () => {
-    const [{ data: facs }, { data: projs }, { data: subs }, { data: plans }, { data: crits }] = await Promise.all([
-      supabase.from('FACULTIES').select('id, faculty_name, DEPARTMENTS ( id, dept_name, PROGRAMS ( id, prog_name ) )'),
-      supabase.from('ADMISSION_PROJECTS').select('*'),
-      supabase.from('SUBJECTS').select('*'),
-      supabase.from('STUDY_PLANS').select('*'),
-      supabase.from('ADMISSION_CRITERIA').select(`
-        *,
-        CRITERIA_PLANS ( plan_id ),
-        CRITERIA_SUBJECTS ( subject_id, min_score, weight )
-      `).order('id', { ascending: false })
-    ]);
-    if (facs) setFacultiesDB(facs);
-    if (projs) setProjectsDB(projs);
-    if (subs) setSubjectsDB(subs);
-    if (plans) setPlansDB(plans);
-    if (crits) setCriteriaList(crits);
+    try {
+      const [facRes, projsRes, subsRes, plansRes, critsRes] = await Promise.all([
+        fetch('/api/academic'),
+        fetch('/api/academic/project'),
+        fetch('/api/academic/subject'),
+        fetch('/api/academic/plan'),
+        fetch('/api/criteria')
+      ]);
+
+      if (facRes.ok) {
+        const facs = await facRes.json();
+        setFacultiesDB(facs);
+      }
+      if (projsRes.ok) {
+        const projs = await projsRes.json();
+        setProjectsDB(projs);
+      }
+      if (subsRes.ok) {
+        const subs = await subsRes.json();
+        setSubjectsDB(subs);
+      }
+      if (plansRes.ok) {
+        const plans = await plansRes.json();
+        setPlansDB(plans);
+      }
+      if (critsRes.ok) {
+        const crits = await critsRes.json();
+        const formattedCrits = crits.map(c => ({
+          ...c,
+          id: c._id // map MongoDB _id to id for compatibility
+        }));
+        setCriteriaList(formattedCrits);
+      }
+    } catch (err) {
+      console.error("Failed to fetch initial data:", err);
+    }
   };
 
   useEffect(() => {
@@ -114,20 +133,21 @@ export default function SuperAdminCriteria() {
 
   const handleDelete = async (id) => {
     if (window.confirm("คุณแน่ใจหรือไม่ที่จะลบเกณฑ์การรับสมัครนี้? ข้อมูลนี้จะไม่สามารถกู้คืนได้")) {
-      const { error } = await supabase.from('ADMISSION_CRITERIA').delete().eq('id', id);
-      
-      if (error) {
-        if (error.code === '23503') {
-          return alert("ไม่สามารถลบได้ เนื่องจากยังมีผู้สมัครที่ใช้เกณฑ์นี้");
-        } else {
-          alert("เกิดข้อผิดพลาดในการลบ: " + error.message);
+      try {
+        const res = await fetch(`/api/criteria/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const errData = await res.json();
+          alert("เกิดข้อผิดพลาดในการลบ: " + (errData.error || res.statusText));
+          return;
         }
-      } else {
+        
         alert("ลบข้อมูลสำเร็จ");
         fetchData(); 
         if (editingId === id) {
            cancelEdit(); 
         }
+      } catch (err) {
+        alert("ฮึบ: เกิดปัญหาการเชื่อมต่อ " + err.message);
       }
     }
   };
@@ -183,59 +203,54 @@ export default function SuperAdminCriteria() {
 
     const payload = {
       academic_year: parseInt(criteriaForm.academic_year),
-       tcas_round: parseInt(criteriaForm.tcas_round),
+      tcas_round: parseInt(criteriaForm.tcas_round),
       max_seats: parseInt(criteriaForm.max_seats),
       min_gpax: parseFloat(criteriaForm.min_gpax),
-       edu_status_req: criteriaForm.edu_status_req, 
+      edu_status_req: criteriaForm.edu_status_req, 
       program_id: parseInt(criteriaForm.program_id),
       project_id: parseInt(criteriaForm.project_id),
       start_date: criteriaForm.start_date, 
-      end_date: criteriaForm.end_date 
-    };
-
-    let targetCriteriaId = editingId;
-
-    if (editingId) {
-      const { error: updateError } = await supabase.from('ADMISSION_CRITERIA').update(payload).eq('id', editingId);
-      if (updateError) {
-         setCriteriaLoading(false);
-        return alert("Error Updating Criteria: " + updateError.message);
-      }
-      
-      await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', editingId);
-       await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', editingId);
-
-    } else {
-      const { data: criteriaData, error: insertError } = await supabase.from('ADMISSION_CRITERIA').insert([payload]).select();
-      if (insertError) {
-         setCriteriaLoading(false);
-        return alert("Error Creating Criteria: " + insertError.message);
-       }
-      targetCriteriaId = criteriaData[0].id;
-    }
-
-    if (criteriaForm.study_plans.length > 0) {
-      const plansToInsert = criteriaForm.study_plans.map(planId => ({ criteria_id: targetCriteriaId, plan_id: parseInt(planId) }));
-       await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
-    }
-
-    if (criteriaForm.subjects.length > 0) {
-      const subjectsToInsert = criteriaForm.subjects.map(sub => ({
-        criteria_id: targetCriteriaId,
-        subject_id: parseInt(sub.subject_id), 
+      end_date: criteriaForm.end_date,
+      study_plans: criteriaForm.study_plans.map(p => parseInt(p)),
+      subjects: criteriaForm.subjects.map(sub => ({
+        subject_id: parseInt(sub.subject_id),
         min_score: parseFloat(sub.min_score) || 0,
         weight: parseFloat(sub.weight) || 0
-      }));
-       await supabase.from('CRITERIA_SUBJECTS').insert(subjectsToInsert);
-    }
+      }))
+    };
 
-    setCriteriaLoading(false);
-    setCriteriaSuccess(true);
-    setEditingId(null);
-     setCriteriaForm(initialFormState);
-    fetchData(); 
-    
-    setTimeout(() => setCriteriaSuccess(false), 3000);
+    try {
+      let res;
+      if (editingId) {
+        res = await fetch(`/api/criteria/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch('/api/criteria', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Save Failed");
+      }
+
+      setCriteriaSuccess(true);
+      setEditingId(null);
+      setCriteriaForm(initialFormState);
+      fetchData(); 
+      setTimeout(() => setCriteriaSuccess(false), 3000);
+
+    } catch (err) {
+      alert("Error Saving Criteria: " + err.message);
+    } finally {
+      setCriteriaLoading(false);
+    }
   };
 
   const addSubjectRow = () => {

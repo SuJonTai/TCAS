@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   Calculator
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 
 function StatusBadge({ status }) {
   switch (status) {
@@ -58,81 +57,56 @@ export default function ApplicantDetailPage() {
 
   useEffect(() => {
     const fetchApplicantData = async () => {
-      const { data, error } = await supabase
-        .from('APPLICATION')
-        .select(`
-          id,
-          user_id, 
-          status,
-          gpax,
-          portfolio_url,
-          transcript_url,
-          USERS ( 
-             first_name, 
-            last_name, 
-            citizen_id,
-            edu_status,
-             current_level,
-            high_school,
-            STUDY_PLANS ( plan_name, plan_group ) 
-          ),
-          ADMISSION_CRITERIA (
-             tcas_round,
-            ADMISSION_PROJECTS ( project_name ), 
-            PROGRAMS (
-              prog_name,
-               DEPARTMENTS (
-                dept_name,
-                FACULTIES ( faculty_name )
-              )
-            ),
-            CRITERIA_SUBJECTS (
-               subject_id,
-              weight,
-               SUBJECTS ( subject_name )
-            )
-          )
-        `)
-        .eq('id', id)
-        .single()
-
-      if (error) {
-        console.error("Fetch Error:", error.message)
-        setLoading(false)
-        return
-      }
-
-      if (data) {
-        setApplicant(data)
-        setCurrentStatus(data.status || "pending")
-        if (data.user_id) {
-           const { data: scoreData } = await supabase
-            .from('USER_SCORES')
-            .select(`subject_id, score_value, SUBJECTS ( subject_name )`)
-            .eq('user_id', data.user_id)
-          if (scoreData) setScores(scoreData)
+      try {
+        const res = await fetch(`/api/applications/${id}`)
+        if (!res.ok) throw new Error("Failed to fetch applicant")
+        const data = await res.json()
+        
+        if (data) {
+          setApplicant(data)
+          setCurrentStatus(data.status || "pending")
+          
+          if (data.user_id) {
+             const { data: scoreData } = await supabase
+              .from('USER_SCORES')
+              .select(`subject_id, score_value, SUBJECTS ( subject_name )`)
+              .eq('user_id', data.user_id)
+            if (scoreData) setScores(scoreData)
+          }
         }
+      } catch (error) {
+        console.error("Fetch Error:", error.message)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
     fetchApplicantData()
   }, [id])
 
   const handleUpdateStatus = async (newStatus) => {
     setSaving(true)
-    const { error } = await supabase
-       .from('APPLICATION')
-       .update({ status: newStatus })
-      .eq('id', id)
+    
+    try {
+      const res = await fetch(`/api/applications/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: newStatus })
+      })
 
-    setSaving(false)
-    setConfirmAction(null)
-
-    if (error) {
-      alert("เกิดข้อผิดพลาด: " + error.message)
-    } else {
+      if (!res.ok) {
+        const errData = await res.json()
+        throw new Error(errData.error || "Failed to update status")
+      }
+      
       setCurrentStatus(newStatus)
       setShowResultDialog(true)
+    } catch (error) {
+      alert("เกิดข้อผิดพลาด: " + error.message)
+    } finally {
+      setSaving(false)
+      setConfirmAction(null)
     }
   }
 
@@ -167,13 +141,15 @@ export default function ApplicantDetailPage() {
   if (!applicant) return <div className="p-12 text-center text-destructive font-poppins">ไม่พบข้อมูลผู้สมัครนี้</div>
 
   const user = applicant.USERS || {}
-  const studyPlanName = user.STUDY_PLANS?.plan_name || "-"
-  const studyPlanType = user.STUDY_PLANS?.plan_group || "-"
+  const appInfo = applicant.APPLICANT_INFO || {}
   const criteria = applicant.ADMISSION_CRITERIA || {}
-  const program = criteria.PROGRAMS || {}
-  const dept = program.DEPARTMENTS || {}
-  const faculty = dept.FACULTIES || {}
-  const project = criteria.ADMISSION_PROJECTS || {} 
+  
+  const studyPlanName = appInfo.study_plan || "-"
+  const studyPlanType = "-" // Will need to define or extract this similarly if needed
+  
+  const program = criteria.PROGRAM || {}
+  const faculty = criteria.FACULTY || {}
+  const project = criteria.PROJECTS || {}
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 lg:px-8 font-poppins min-h-screen">

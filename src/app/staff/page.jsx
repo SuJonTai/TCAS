@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Search, Shield } from "lucide-react"
-import { supabase } from "@/lib/supabase"
 
 function ChevronDownIcon(props) {
   return (
@@ -25,20 +24,25 @@ export default function StaffSearchForm() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data, error } = await supabase.from('FACULTIES').select(`
-        id, faculty_name, DEPARTMENTS ( id, PROGRAMS ( id, prog_name ) )
-      `)
-      if (!error && data) setFacultiesDB(data)
-      setLoading(false)
+      try {
+        const res = await fetch('/api/academic')
+        if (!res.ok) throw new Error("Failed to fetch academic data")
+        const data = await res.json()
+        setFacultiesDB(data || [])
+      } catch (error) {
+        console.error("Error loading staff data:", error)
+      } finally {
+        setLoading(false)
+      }
     }
     fetchData()
   }, [])
 
   const availablePrograms = useMemo(() => {
     if (!selectedFaculty) return []
-    const faculty = facultiesDB.find(f => f.id.toString() === selectedFaculty)
+    const faculty = facultiesDB.find(f => (f._id || f.id).toString() === selectedFaculty)
     if (!faculty) return []
-    return faculty.DEPARTMENTS.flatMap((d) => d.PROGRAMS)
+    return faculty.DEPARTMENTS?.flatMap((d) => d.PROGRAMS) || []
   }, [selectedFaculty, facultiesDB])
 
   const handleSearch = (e) => {
@@ -107,7 +111,7 @@ export default function StaffSearchForm() {
                   >
                      <option value="">ทุกคณะ</option>
                     {facultiesDB.map((f) => (
-                      <option key={f.id} value={f.id}>{f.faculty_name}</option>
+                      <option key={f._id || f.id} value={f._id || f.id}>{f.faculty_name}</option>
                     ))}
                   </select>
                   <ChevronDownIcon className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none text-foreground" />
@@ -129,7 +133,7 @@ export default function StaffSearchForm() {
                        {selectedFaculty ? "ทุกสาขาวิชา" : "กรุณาเลือกคณะก่อน"}
                     </option>
                     {availablePrograms.map((p) => (
-                      <option key={p.id} value={p.id}>{p.prog_name}</option>
+                      <option key={p._id || p.id} value={p._id || p.id}>{p.prog_name}</option>
                     ))}
                    </select>
                   <ChevronDownIcon className="absolute right-3 top-3 h-4 w-4 opacity-50 pointer-events-none text-foreground" />

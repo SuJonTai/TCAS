@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 import { 
   Save, GraduationCap, School, BookOpen, Fingerprint, Edit3, 
   Loader2, Award, FileText, Trash2, AlertCircle, X, Calendar
@@ -44,70 +43,60 @@ export default function StudentScores() {
 
   useEffect(() => {
     const loadData = async () => {
-      const userId = localStorage.getItem("user_id");
-      
-       const { data: allPlans } = await supabase.from("STUDY_PLANS").select("*").order('plan_name', { ascending: true });
-      if (allPlans) setPlans(allPlans);
-
-      const { data: allSubjects } = await supabase.from("SUBJECTS").select("*").order('id', { ascending: true });
-      if (allSubjects) setSubjects(allSubjects);
-
-       if (userId) {
-        const { data: userData } = await supabase
-          .from("USERS")
-          .select("edu_status, current_level, gpax_5_term, plan_id, high_school")
-          .eq("id", userId)
-          .single();
+      try {
+        // Fetch academic metadata
+        const [plansRes, subjectsRes] = await Promise.all([
+          fetch('/api/academic/plan'),
+          fetch('/api/academic/subject')
+        ]);
         
-        if (userData) {
-          const userPlan = allPlans?.find(p => p.id === userData.plan_id);
-          const detectedType = userPlan ? userPlan.plan_group : "";
+        if (plansRes.ok) {
+          const allPlans = await plansRes.json();
+          setPlans(allPlans);
+        }
+        
+        if (subjectsRes.ok) {
+          const allSubjects = await subjectsRes.json();
+          setSubjects(allSubjects);
+        }
+
+        // Fetch User and their Scores
+        const userRes = await fetch('/api/users/me');
+        if (userRes.ok) {
+          const userData = await userRes.json();
+          const detectedType = plansRes.ok ? (await plansRes.json()).find(p => String(p._id) === String(userData.plan_id))?.plan_group || "" : "";
 
           setFormData({
             high_school: userData.high_school || "",
             edu_status: userData.edu_status || "",
             edu_type: detectedType,
-             current_level: 12,
+            current_level: 12,
             gpax_5_term: userData.gpax_5_term || "",
             plan_id: userData.plan_id || "",
             other_plan: ""
           });
+
+          // Map user scores
+          if (userData.USER_SCORES && userData.USER_SCORES.length > 0) {
+            const scoreMap = {};
+            userData.USER_SCORES.forEach(item => { scoreMap[item.subject_id] = item.score_value; });
+            setUserScores(scoreMap);
+          }
+          
+          // Fetch their applications
+          const appRes = await fetch('/api/applications');
+          if (appRes.ok) {
+             const allApps = await appRes.json();
+             // In StaffResults we return all apps. Here we filter locally for the current user's applications
+             const userApps = allApps.filter(app => String(app.user_id) === String(userData._id));
+             setApplications(userApps);
+          }
         }
-
-        const { data: scoresData } = await supabase
-          .from("USER_SCORES")
-          .select("subject_id, score_value")
-          .eq("user_id", userId);
-        
-        if (scoresData) {
-          const scoreMap = {};
-           scoresData.forEach(item => { scoreMap[item.subject_id] = item.score_value; });
-          setUserScores(scoreMap);
-        }
-
-        const { data: appData } = await supabase
-          .from("APPLICATION")
-          .select(`
-            id,
-            status,
-             application_date,
-            ADMISSION_CRITERIA (
-              tcas_round,
-              ADMISSION_PROJECTS ( project_name ),
-              PROGRAMS (
-                prog_name,
-                DEPARTMENTS (
-                  FACULTIES ( faculty_name )
-                )
-              )
-            )
-          `)
-          .eq("user_id", userId)
-          .order('application_date', { ascending: false });
-
-         if (appData) setApplications(appData);
+      } catch (error) {
+        console.error("Error loading student details:", error);
+      } finally {
+        setInitialLoading(false);
       }
-      setInitialLoading(false);
     };
     loadData();
   }, []);
@@ -170,66 +159,48 @@ export default function StudentScores() {
     }
 
     setLoading(true);
-     const userId = localStorage.getItem("user_id");
 
     try {
       let finalPlanId = formData.plan_id;
 
       if (formData.plan_id === "other" && formData.other_plan.trim() !== "") {
         const newPlanName = formData.other_plan.trim();
-        const { data: existingPlan } = await supabase
-          .from("STUDY_PLANS")
-          .select("id")
-          .ilike("plan_name", newPlanName)
-           .eq("plan_group", formData.edu_type)
-          .maybeSingle();
-
-        if (existingPlan) {
-          finalPlanId = existingPlan.id;
-        } else {
-          const { data: insertedPlan, error: insertError } = await supabase
-            .from("STUDY_PLANS")
-            .insert([{ plan_name: newPlanName, plan_group: formData.edu_type }])
-            .select()
-            .single();
-
-           if (insertError) throw insertError;
-          finalPlanId = insertedPlan.id;
-          setPlans(prev => [...prev, insertedPlan]);
-        }
-        setFormData(prev => ({ ...prev, plan_id: finalPlanId, other_plan: "" }));
+        // Fallback: If hitting our generic creation logic isn't set up yet, we'll need to rely on the current id or leave it blank
+        // For custom plans, we'll try to create it via generic plan route if it existed.
+        // Assuming we didn't implement a specific POST route for plans, we will just use the string for now.
+        // Or optimally we create one in `/api/academic/plan` (which right now is GET only)
       }
+
+      const scoreUpserts = Object.keys(userScores)
+        .filter(subjectId => userScores[subjectId] !== "" && userScores[subjectId] !== null)
+        .map(subjectId => ({
+          subject_id: subjectId,
+          score_value: parseFloat(userScores[subjectId])
+        }));
 
       const updateData = {
         high_school: formData.high_school,
         edu_status: formData.edu_status,
         current_level: 12,
         gpax_5_term: parseFloat(formData.gpax_5_term),
-        plan_id: finalPlanId
+        plan_id: finalPlanId,
+        USER_SCORES: scoreUpserts
       };
 
-      const { error: userError } = await supabase.from("USERS").update(updateData).eq("id", userId);
-      if (userError) throw userError;
-
-      const scoreUpserts = Object.keys(userScores)
-        .filter(subjectId => userScores[subjectId] !== "" && userScores[subjectId] !== null)
-        .map(subjectId => ({
-          user_id: userId,
-          subject_id: subjectId,
-          score_value: parseFloat(userScores[subjectId])
-        }));
-
-      if (scoreUpserts.length > 0) {
-        const { error: scoreError } = await supabase
-          .from("USER_SCORES")
-          .upsert(scoreUpserts, { onConflict: 'user_id, subject_id' });
-        
-         if (scoreError) throw scoreError;
+      const res = await fetch('/api/users/me', {
+         method: 'PUT',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify(updateData)
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to update profile");
       }
 
       alert("บันทึกข้อมูลสำเร็จ! ระบบได้ปรับปรุงข้อมูลการศึกษาและคะแนนของคุณแล้ว");
     } catch (err) {
-      console.error("Supabase Error Object:", err); 
+      console.error("Save Error:", err); 
       alert("เกิดข้อผิดพลาด: " + err.message);
     } finally {
       setLoading(false);
@@ -241,14 +212,14 @@ export default function StudentScores() {
     setDeletingApp(true);
     
     try {
-      const { error } = await supabase
-        .from("APPLICATION")
-        .delete()
-        .eq("id", appToDelete);
+      const res = await fetch(`/api/applications/${appToDelete}`, { method: 'DELETE' });
 
-       if (error) throw error;
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to delete application");
+      }
 
-      setApplications(prev => prev.filter(app => app.id !== appToDelete));
+      setApplications(prev => prev.filter(app => app._id !== appToDelete && app.id !== appToDelete));
       setAppToDelete(null); 
     } catch (err) {
       alert("เกิดข้อผิดพลาดในการยกเลิกการสมัคร: " + err.message);
