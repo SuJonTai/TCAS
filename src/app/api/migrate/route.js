@@ -55,6 +55,23 @@ export async function POST() {
       if (result.modifiedCount > 0) results.plans++;
     }
 
+    // --- Clean up old indexes that use citizen_id ---
+    const collectionsToFix = ['applicantscores', 'admissionresults'];
+    for (const colName of collectionsToFix) {
+      try {
+        const col = db.collection(colName);
+        const indexes = await col.indexes();
+        for (const idx of indexes) {
+          if (idx.key && idx.key.citizen_id) {
+            await col.dropIndex(idx.name);
+            results[`droppedIndex_${colName}`] = idx.name;
+          }
+        }
+      } catch (e) {
+        results[`indexNote_${colName}`] = e.message;
+      }
+    }
+
     return NextResponse.json({ 
       message: 'Migration complete',
       updated: results

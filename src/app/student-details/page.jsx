@@ -177,14 +177,18 @@ export default function StudentScores() {
         .map(subjectId => ({
           subject_id: subjectId,
           score_value: parseFloat(userScores[subjectId])
-        }));
+        }))
+        .filter(s => !isNaN(s.score_value));
+
+      const gpax = parseFloat(formData.gpax_5_term);
+      const planId = finalPlanId && finalPlanId !== "other" ? parseInt(finalPlanId) : null;
 
       const updateData = {
         high_school: formData.high_school,
         edu_status: formData.edu_status,
         current_level: 12,
-        gpax_5_term: parseFloat(formData.gpax_5_term),
-        plan_id: finalPlanId,
+        gpax_5_term: !isNaN(gpax) ? gpax : null,
+        plan_id: !isNaN(planId) ? planId : null,
         USER_SCORES: scoreUpserts
       };
 

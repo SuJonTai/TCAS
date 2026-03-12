@@ -2,38 +2,51 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/mongodb';
 import AdmissionResult from '@/models/AdmissionResult';
 import User from '@/models/User';
-import ApplicantInfo from '@/models/ApplicantInfo';
 import AdmissionCriteria from '@/models/AdmissionCriteria';
+import AdmissionProject from '@/models/AdmissionProject';
+import Program from '@/models/Program';
+import Department from '@/models/Department';
+import Faculty from '@/models/Faculty';
 
 export async function GET(req) {
   try {
     await connectToDatabase();
 
-    // To mirror the complex Supabase join in StaffResults and ApplyDetail:
-    // SELECT *, 
-    // USERS ( citizen_id, first_name, last_name ), 
-    // APPLICANT_INFO ( high_school, study_plan, gpax, edu_status ), 
-    // ADMISSION_CRITERIA ( *, ADMISSION_PROJECTS (*), FACULTIES (*), DEPARTMENTS (*), PROGRAMS (*) ), 
-    // APPLICANT_SCORES ( * )
-    
-    // In Mongoose, this requires multiple populate calls
     const results = await AdmissionResult.find()
-      .populate('USERS')
-      .populate('APPLICANT_INFO')
-      .populate('APPLICANT_SCORES')
-      .populate({
-        path: 'ADMISSION_CRITERIA',
-        populate: [
-          { path: 'PROJECTS' },
-          { path: 'FACULTY' },
-          { path: 'DEPT' },
-          { path: 'PROGRAM' }
-        ]
-      })
+      .populate({ path: 'user_id', model: User, select: '-password' })
+      .populate({ path: 'criteria_id', model: AdmissionCriteria })
       .sort({ application_date: -1 })
-      .lean({ virtuals: true });
+      .lean();
 
-    return NextResponse.json(results);
+    // Enrich each result with program/faculty/project info from criteria
+    const [projects, programs, departments, faculties] = await Promise.all([
+      AdmissionProject.find().lean(),
+      Program.find().lean(),
+      Department.find().lean(),
+      Faculty.find().lean(),
+    ]);
+
+    const enriched = results.map(r => {
+      const criteria = r.criteria_id || {};
+      const project = projects.find(p => p.id === criteria.project_id);
+      const program = programs.find(p => p.id === criteria.program_id);
+      const dept = program ? departments.find(d => d.id === program.dept_id) : null;
+      const faculty = dept ? faculties.find(f => f.id === dept.faculty_id) : null;
+
+      return {
+        ...r,
+        id: r._id,
+        user_id: r.user_id?._id || r.user_id,
+        USERS: r.user_id, // populated user data
+        ADMISSION_CRITERIA: {
+          ...criteria,
+          ADMISSION_PROJECTS: project || {},
+          PROGRAMS: program ? { ...program, DEPARTMENTS: dept ? { ...dept, FACULTIES: faculty || {} } : {} } : {},
+        },
+      };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error("GET Applications error:", error);
     return NextResponse.json({ error: "Failed to fetch applications" }, { status: 500 });

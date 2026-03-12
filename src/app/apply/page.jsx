@@ -72,11 +72,10 @@ export default function Apply() {
     
     const projectMap = new Map();
     criteriaForRound.forEach(c => {
-      // In MongoDB, the project is under c.PROJECTS object or referenced by c.project_id
-      const projId = c.PROJECTS?._id || c.project_id;
-      if (projId && !projectMap.has(projId)) {
-        projectMap.set(projId, {
-          id: projId,
+      const projId = c.project_id;
+      if (projId && !projectMap.has(String(projId))) {
+        projectMap.set(String(projId), {
+          id: String(projId),
           name: c.PROJECTS?.project_name || `โครงการ ${projId}`
         });
       }
@@ -90,17 +89,16 @@ export default function Apply() {
     return criteriaDB
       .filter(c => 
         c.tcas_round?.toString() === selectedRound && 
-        (c.PROJECTS?._id?.toString() === selectedProject || c.project_id?.toString() === selectedProject)
+        c.project_id?.toString() === selectedProject
       )
-      .map(c => c.PROGRAM?._id || c.program_id);
+      .map(c => String(c.program_id));
   }, [selectedRound, selectedProject, criteriaDB]);
 
   const availableFaculties = useMemo(() => {
     if (!validProgramIds.length) return [];
-    // Faculties DB from /api/academic schema: array of { ..., DEPARTMENTS: [ { ..., PROGRAMS: [ ... ] } ] }
     return facultiesDB.filter(f => 
       f.DEPARTMENTS?.some(d => 
-        d.PROGRAMS?.some(p => validProgramIds.includes(p._id || p.id))
+        d.PROGRAMS?.some(p => validProgramIds.includes(String(p.id)))
       )
     );
   }, [facultiesDB, validProgramIds]);
@@ -110,7 +108,7 @@ export default function Apply() {
     const faculty = facultiesDB.find(f => (f._id || f.id).toString() === selectedFaculty);
     
     return faculty?.DEPARTMENTS?.flatMap(d => 
-      d.PROGRAMS.map(p => ({ id: p._id || p.id, name: p.prog_name }))
+      d.PROGRAMS.map(p => ({ id: String(p.id), name: p.prog_name }))
     ).filter(p => validProgramIds.includes(p.id)) || [];
   }, [selectedFaculty, facultiesDB, validProgramIds]);
 
@@ -148,8 +146,8 @@ export default function Apply() {
 
       const matchingCriteria = criteriaDB.find(
         (c) => c.tcas_round?.toString() === selectedRound && 
-               (c.PROGRAM?._id?.toString() === selectedProgram || c.program_id?.toString() === selectedProgram) &&
-               (c.PROJECTS?._id?.toString() === selectedProject || c.project_id?.toString() === selectedProject)
+               c.program_id?.toString() === selectedProgram &&
+               c.project_id?.toString() === selectedProject
       );
 
       if (!matchingCriteria) throw new Error("ไม่พบเกณฑ์การรับสมัครที่ตรงกับข้อมูลที่เลือก");

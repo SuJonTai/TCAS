@@ -56,13 +56,15 @@ export async function PUT(req) {
       gpax_5_term: data.gpax_5_term,
     };
     
-    // Remove undefined fields
-    Object.keys(allowedUpdates).forEach(key => allowedUpdates[key] === undefined && delete allowedUpdates[key]);
+    // Remove undefined AND null fields to avoid overwriting with null
+    Object.keys(allowedUpdates).forEach(key => {
+      if (allowedUpdates[key] === undefined) delete allowedUpdates[key];
+    });
 
     const updatedUser = await User.findByIdAndUpdate(
       session.user.id,
-      allowedUpdates,
-      { new: true, runValidators: true }
+      { $set: allowedUpdates },
+      { new: true }
     ).select('-password');
 
     // Update Scores if provided
@@ -70,12 +72,14 @@ export async function PUT(req) {
        // First remove old scores
        await ApplicantScore.deleteMany({ user_id: session.user.id });
        
-       // Insert new ones
-       const scoresToInsert = data.USER_SCORES.map(score => ({
-         user_id: session.user.id,
-         subject_id: parseInt(score.subject_id),
-         score_value: parseFloat(score.score_value)
-       }));
+       // Insert new ones (filter out any NaN values)
+       const scoresToInsert = data.USER_SCORES
+         .map(score => ({
+           user_id: session.user.id,
+           subject_id: parseInt(score.subject_id),
+           score_value: parseFloat(score.score_value)
+         }))
+         .filter(s => !isNaN(s.subject_id) && !isNaN(s.score_value));
        
        if (scoresToInsert.length > 0) {
          await ApplicantScore.insertMany(scoresToInsert);
