@@ -64,7 +64,7 @@ function FacultyCard({ faculty, dbType }) { // 👈 dbType passed as prop
   }, 0) || 0;
 
   // 👈 Use our new helper function instead of direct Supabase Storage call
-  const logoUrl = getFacultyLogoUrl(faculty.id, dbType);
+  const logoUrl = getFacultyLogoUrl(faculty.id);
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
@@ -134,7 +134,7 @@ export default function AdmissionPage() {
       setLoading(true);
       try {
         // 👈 Fetch via our Node.js Backend API
-        const data = await fetchAdmissionsData(dbType);
+        const data = await fetchAdmissionsData();
         setFacultiesDB(data);
       } catch (error) {
         console.error("Failed to fetch admissions:", error);
@@ -144,7 +144,7 @@ export default function AdmissionPage() {
     };
     
     fetchAdmissions();
-  }, [dbType]); // 👈 Re-fetch if user toggles DB
+  }, []); // 👈 Re-fetch if user toggles DB
 
   const filtered = useMemo(() => {
     if (!search) return facultiesDB

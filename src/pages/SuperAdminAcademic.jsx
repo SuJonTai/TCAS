@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Building2, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { apiFetch } from "@/services/apiService";
+import { fetchFaculties as getFaculties } from '@/services/apiService';
 
 export default function SuperAdminAcademic() {
   const [facultiesDB, setFacultiesDB] = useState([]);
@@ -15,13 +17,8 @@ export default function SuperAdminAcademic() {
   const fetchFaculties = async () => {
   try {
     // เพิ่ม Timestamp เพื่อป้องกัน Browser Cache (ถ้าใช้ MS SQL)
-    const response = await fetch(`http://localhost:3000/api/faculties?t=${Date.now()}`);
-    const data = await response.json();
-    
-    if (response.ok) {
-      console.log("Updated Faculties Data:", data); // ตรวจสอบใน Console ว่า DEPARTMENTS มาครบไหม
-      setFacultiesDB([...data]); // ใช้ Spread Operator เพื่อบังคับให้ React รู้ว่า State เปลี่ยน
-    }
+    const data = await getFaculties();
+    setFacultiesDB([...data]); // ใช้ Spread Operator เพื่อบังคับให้ React รู้ว่า State เปลี่ยน
   } catch (error) {
     console.error("Fetch error:", error);
   }
@@ -56,18 +53,10 @@ export default function SuperAdminAcademic() {
     setAcademicLoading(true);
     setErrorMessage("");
     try {
-      const response = await fetch(`http://localhost:3000/api/${endpoint}`, {
+      await apiFetch(`/api/${endpoint}`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-db-type": "sqlserver" // เพิ่มบรรทัดนี้ หรือดึงจาก config/state
-        },
         body: JSON.stringify(body),
       });
-
-      const result = await response.json();
-
-      if (!response.ok) throw new Error(result.message || "เกิดข้อผิดพลาด");
 
       showAcademicSuccess(successMsg);
       resetForm();

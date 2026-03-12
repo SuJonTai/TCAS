@@ -32,7 +32,7 @@ export default function RegisterForm() {
 
     try {
       // Send plain text password to Node.js; the backend will hash it securely!
-      await registerUser(dbType, {
+      await registerUser({
         citizen_id: form.nationalId,
         password: form.password, 
         first_name: firstName,

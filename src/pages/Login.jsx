@@ -25,7 +25,7 @@ export default function LoginForm() {
   
     try {
       // 1. Send login request to Node.js Backend (Backend handles bcrypt securely!)
-      const user = await loginUser(dbType, { 
+      const user = await loginUser({ 
         citizen_id: form.userId, 
         password: form.password 
       });

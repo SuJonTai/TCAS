@@ -97,7 +97,7 @@ function TopFacultiesChart() {
       setLoading(true)
       try {
         // 👈 Fetch directly from our Node.js Backend API
-        const data = await fetchTopFacultiesStats(dbType)
+        const data = await fetchTopFacultiesStats()
         setTopFaculties(data || [])
       } catch (error) {
         console.error("Error fetching top faculties:", error.message)
@@ -106,7 +106,7 @@ function TopFacultiesChart() {
       }
     }
     fetchTopFaculties()
-  }, [dbType]) // Re-fetch if user toggles the database
+  }, []) // Re-fetch if user toggles the database
 
   const max = topFaculties.length > 0 ? Math.max(...topFaculties.map((f) => f.applicants)) : 0
 

@@ -40,11 +40,11 @@ export default function SuperAdminCriteria() {
   const fetchData = async () => {
     try {
       const [facs, projs, subs, plans, crits] = await Promise.all([
-        apiFetch('/api/faculties', dbType),
-        apiFetch('/api/projects', dbType),
-        apiFetch('/api/subjects', dbType),
-        apiFetch('/api/study-plans', dbType),
-        apiFetch('/api/criteria', dbType)
+        apiFetch('/api/faculties'),
+        apiFetch('/api/projects'),
+        apiFetch('/api/subjects'),
+        apiFetch('/api/study-plans'),
+        apiFetch('/api/criteria')
       ]);
       
       if (facs) setFacultiesDB(facs);
@@ -60,7 +60,7 @@ export default function SuperAdminCriteria() {
   useEffect(() => {
     fetchData();
     // โหลดข้อมูลใหม่ทุกครั้งที่มีการเปลี่ยน dbType
-  }, [dbType]);
+  }, []);
 
   const availableDeptsForCriteria = useMemo(() => {
     if (!criteriaForm.faculty_id) return [];
@@ -120,7 +120,7 @@ export default function SuperAdminCriteria() {
   const handleDelete = async (id) => {
     if (window.confirm("คุณแน่ใจหรือไม่ที่จะลบเกณฑ์การรับสมัครนี้? ข้อมูลนี้จะไม่สามารถกู้คืนได้")) {
       try {
-        await apiFetch(`/api/criteria/${id}`, dbType, { method: 'DELETE' });
+        await apiFetch(`/api/criteria/${id}`,{ method: 'DELETE' });
         alert("ลบข้อมูลสำเร็จ");
         fetchData(); 
         if (editingId === id) cancelEdit(); 
@@ -199,12 +199,12 @@ export default function SuperAdminCriteria() {
       };
 
       if (editingId) {
-        await apiFetch(`/api/criteria/${editingId}`, dbType, {
+        await apiFetch(`/api/criteria/${editingId}`,{
           method: 'PUT',
           body: JSON.stringify(bodyData)
         });
       } else {
-        await apiFetch('/api/criteria', dbType, {
+        await apiFetch('/api/criteria',{
           method: 'POST',
           body: JSON.stringify(bodyData)
         });

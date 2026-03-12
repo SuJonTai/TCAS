@@ -51,7 +51,7 @@ export default function StudentScores() {
 
       try {
         // ยิง API ไปที่ Backend เพื่อดึงข้อมูลรวบยอด
-        const data = await apiFetch(`/api/student/dashboard/${userId}`, dbType);
+        const data = await apiFetch(`/api/student/dashboard/${userId}`);
         
         setPlans(data.plans || []);
         setSubjects(data.subjects || []);
@@ -143,7 +143,7 @@ export default function StudentScores() {
     try {
       // ส่งข้อมูลให้ Backend จัดการอัปเดต Profile, สร้างแผนการเรียนใหม่(ถ้ามี) และอัปเดตคะแนน
       const payload = { ...formData, userScores };
-      const response = await apiFetch(`/api/student/profile/${userId}`, dbType, {
+      const response = await apiFetch(`/api/student/profile/${userId}`,{
         method: "PUT",
         body: JSON.stringify(payload)
       });
@@ -151,7 +151,7 @@ export default function StudentScores() {
       if (formData.plan_id === "other" && response.newPlanId) {
         setFormData(prev => ({ ...prev, plan_id: response.newPlanId, other_plan: "" }));
         // รีโหลดแผนการเรียน
-        const updatedPlans = await apiFetch(`/api/study-plans`, dbType);
+        const updatedPlans = await apiFetch(`/api/study-plans`);
         setPlans(updatedPlans);
       }
 
@@ -168,7 +168,7 @@ export default function StudentScores() {
     setDeletingApp(true);
     
     try {
-      await apiFetch(`/api/applications/${appToDelete}`, dbType, { method: "DELETE" });
+      await apiFetch(`/api/applications/${appToDelete}`, { method: "DELETE" });
       setApplications(prev => prev.filter(app => app.id !== appToDelete));
       setAppToDelete(null); 
     } catch (err) {

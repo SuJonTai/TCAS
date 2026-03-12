@@ -45,7 +45,7 @@ export default function ApplicantListTable() {
       if (programFilter) params.append("program_id", programFilter);
 
       // 👈 ยิง API ไปที่ Backend ของเรา
-      const data = await apiFetch(`/api/staff/applicants?${params.toString()}`, dbType);
+      const data = await apiFetch(`/api/staff/applicants?${params.toString()}`);
 
       if (data) {
         let formattedData = data.map(app => {
@@ -189,7 +189,7 @@ export default function ApplicantListTable() {
     if (isConfirmed) {
       try {
         // 👈 เรียกใช้ Endpoint ที่เราเคยสร้างไว้ตอนทำหน้า Student_details
-        await apiFetch(`/api/applications/${id}`, dbType, { method: "DELETE" })
+        await apiFetch(`/api/applications/${id}`,{ method: "DELETE" })
         alert("ลบข้อมูลใบสมัครเรียบร้อยแล้ว")
         fetchApplicants()
       } catch (err) {

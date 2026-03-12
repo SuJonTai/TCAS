@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo,  useRef} from "react";
 import { Link, useParams, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
@@ -59,32 +59,37 @@ export default function ApplicantDetailPage() {
   const [scores, setScores] = useState([])
   const [confirmAction, setConfirmAction] = useState(null)
 
+  const prevDbType = useRef(dbType);
+
   useEffect(() => {
     const fetchApplicantData = async () => {
       try {
         setLoading(true)
         // 👈 เรียก API เพื่อดึงข้อมูลรายละเอียดและคะแนนรวบยอดจาก Backend
-        const data = await apiFetch(`/api/staff/applicants/${id}`, dbType)
+        const data = await apiFetch(`/api/staff/applicants/${id}`)
         
         if (data && data.applicant) {
           setApplicant(data.applicant)
           setCurrentStatus(data.applicant.status || "pending")
           setScores(data.scores || [])
+        } else {
+          navigate("/staff/results")
         }
       } catch (error) {
         console.error("Fetch Error:", error.message)
+        navigate("/staff/results")
       } finally {
         setLoading(false)
       }
     }
     fetchApplicantData()
-  }, [id, dbType])
+  }, [id, dbType, navigate])
 
   const handleUpdateStatus = async (newStatus) => {
     setSaving(true)
     try {
       // 👈 เรียก API เพื่ออัปเดตสถานะ
-      await apiFetch(`/api/staff/applicants/${id}/status`, dbType, {
+      await apiFetch(`/api/staff/applicants/${id}/status`,{
         method: "PUT",
         body: JSON.stringify({ status: newStatus })
       })

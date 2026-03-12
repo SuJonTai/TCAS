@@ -40,7 +40,7 @@ export default function Apply() {
 
       try {
         // 3. 👈 ใช้ dbType แทนการ Hardcode
-        const data = await fetchApplyPreData(dbType, userId);
+        const data = await fetchApplyPreData(userId);
         
         setUserProfile(data.user || null);
         setFacultiesDB(data.faculties || []);
@@ -52,7 +52,7 @@ export default function Apply() {
       }
     };
     fetchData();
-  }, [dbType]); // 👈 เพิ่ม dbType กลับเข้า dependency array
+  }, []);
 
   // ==========================================
   // CASCADING DROPDOWN LOGIC
@@ -133,7 +133,7 @@ export default function Apply() {
       }
 
       // 4. 👈 เปลี่ยนกลับมาใช้ dbType การรับไฟล์ FormData ใช้งานกับ SQL Server ได้ปกติครับ!
-      await submitApplication(dbType, formData);
+      await submitApplication(formData);
 
       setShowSuccess(true);
     } catch (err) {
@@ -296,7 +296,7 @@ export default function Apply() {
             <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
             <h3 className="text-xl font-bold text-gray-900">สำเร็จ!</h3>
             <p className="text-gray-500 mt-2 mb-6">บันทึกใบสมัครของคุณเข้าสู่ระบบแล้ว</p>
-            <button onClick={() => window.location.href = '/'} className="w-full py-2 bg-primary text-white rounded-lg font-semibold hover:bg-primary/90 transition-colors">ปิดหน้าต่างนี้</button>
+            <button onClick={() => window.location.href = '/student/details'} className="w-full py-2 bg-primary text-white rounded-lg font-semibold hover:bg-primary/90 transition-colors">ปิดหน้าต่างนี้</button>
           </div>
         </div>
       )}

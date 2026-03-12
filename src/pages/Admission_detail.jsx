@@ -156,7 +156,7 @@ export default function AdmissionDetailPage() {
       try {
         setLoading(true);
         // เรียกใช้ apiFetch แทนการใช้ Supabase ตรงๆ
-        const progData = await apiFetch(`/api/programs/${id}`, dbType);
+        const progData = await apiFetch(`/api/programs/${id}`);
         
         if (progData) {
           if (progData.ADMISSION_CRITERIA) {
@@ -171,7 +171,7 @@ export default function AdmissionDetailPage() {
       }
     }
     fetchDetail()
-  }, [id, dbType])
+  }, [id])
 
   if (loading) return <div className="p-12 text-center text-muted-foreground">กำลังโหลดข้อมูล...</div>
   if (!data) return <div className="p-12 text-center text-red-500">ไม่พบข้อมูลสาขาวิชานี้</div>

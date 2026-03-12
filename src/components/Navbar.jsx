@@ -30,6 +30,7 @@ export default function Navbar() {
   const isLogin = typeof window !== "undefined" ? localStorage.getItem("isLogin") === "true" : false;
   const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
   const firstName = typeof window !== "undefined" ? localStorage.getItem("first_name") : null;
+  const prevDbType = useRef(dbType);
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -50,11 +51,12 @@ export default function Navbar() {
     }
     
     // ถ้ามีการกดสลับ Database (dbType เปลี่ยน) และมีคนล็อกอินอยู่ ให้ Logout ทันที
-    if (isLogin) {
-      handleLogout();
-      alert("สลับฐานข้อมูลเรียบร้อย ");
+    if (isLogin && prevDbType.current !== dbType) {
+    prevDbType.current = dbType; // อัปเดตค่าล่าสุด
+    alert("สลับฐานข้อมูลเรียบร้อย");
+    window.location.reload();
     }
-  }, [dbType]); // Trigger เมื่อ dbType มีการเปลี่ยนแปลง
+  }, [dbType, isLogin]);
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {

@@ -643,49 +643,103 @@ app.get('/api/apply-data/:userId', async (req, res) => {
 app.post('/api/apply', upload.fields([{ name: 'transcript' }, { name: 'portfolio' }]), async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { user_id, criteria_id, gpax } = req.body;
-
-    // Fallback URLs for files (since we are skipping complex MS SQL file storage)
-    const transcriptUrl = req.files['transcript'] ? `http://localhost:3000/uploads/${req.files['transcript'][0].filename}` : null;
-    const portfolioUrl = req.files['portfolio'] ? `http://localhost:3000/uploads/${req.files['portfolio'][0].filename}` : null;
+    
+    let transcriptUrl = null;
+    let portfolioUrl = null;
 
     try {
+        // ย้ายทุกอย่างเข้ามาใน try...catch เพื่อดัก Error ให้ถูกต้อง
         if (useSupabase) {
-            // CHECK FOR EXISTING
+            const uploadFileToSupabase = async (file, bucket) => {
+                const fileBuffer = fs.readFileSync(file.path);
+                const fileName = file.filename;
+
+                const { data, error } = await supabase.storage
+                    .from(bucket)
+                    .upload(fileName, fileBuffer, {
+                        contentType: file.mimetype,
+                        upsert: true
+                    });
+
+                // ถ้าติด RLS Error จะถูกโยนไปที่ catch() ทันที
+                if (error) throw error; 
+
+                const { data: publicUrlData } = supabase.storage
+                    .from(bucket)
+                    .getPublicUrl(fileName);
+                
+                return publicUrlData.publicUrl;
+            };
+
+            // 1. อัปโหลดไฟล์ก่อน
+            if (req.files['transcript']) {
+                transcriptUrl = await uploadFileToSupabase(req.files['transcript'][0], 'transcripts');
+            }
+            if (req.files['portfolio']) {
+                portfolioUrl = await uploadFileToSupabase(req.files['portfolio'][0], 'portfolios');
+            }
+
+            // 2. เช็คข้อมูลซ้ำ
             const { data: existing } = await supabase.from('APPLICATION')
                 .select('id').eq('user_id', user_id).eq('criteria_id', criteria_id).maybeSingle();
 
-            if (existing) return res.status(409).json({ error: "คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว" });
+            if (existing) {
+                // ถ้ามีข้อมูลแล้ว ให้โยน error เพื่อไปทำความสะอาดไฟล์ใน catch
+                throw new Error("คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว");
+            }
 
-            // Note: For a true 1:1 migration, you would read req.files here and upload 
-            // the buffers directly to Supabase Storage via supabase-js. 
-            // For now, we simulate success to keep things moving.
-
+            // 3. บันทึกข้อมูล
             const { error: insertErr } = await supabase.from('APPLICATION').insert([{
-                user_id, criteria_id, gpax, status: 'pending', transcript_url: transcriptUrl, portfolio_url: portfolioUrl
+                user_id, criteria_id, gpax, status: 'pending', 
+                transcript_url: transcriptUrl, 
+                portfolio_url: portfolioUrl
             }]);
 
             if (insertErr) throw insertErr;
-            return res.status(201).json({ message: "Application submitted" });
 
         } else {
             // MS SQL Logic
-            // CHECK FOR EXISTING
+            const PORT = process.env.PORT || 3000;
+            if (req.files['transcript']) {
+                transcriptUrl = `http://localhost:${PORT}/uploads/${req.files['transcript'][0].filename}`;
+            }
+            if (req.files['portfolio']) {
+                portfolioUrl = `http://localhost:${PORT}/uploads/${req.files['portfolio'][0].filename}`;
+            }
+
             const check = await sql.query`SELECT id FROM APPLICATION WHERE user_id = ${user_id} AND criteria_id = ${criteria_id}`;
-            if (check.recordset.length > 0) return res.status(409).json({ error: "คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว" });
+            if (check.recordset.length > 0) throw new Error("คุณได้ส่งใบสมัครในสาขาและโครงการนี้ไปแล้ว");
 
             await sql.query`
                 INSERT INTO APPLICATION (user_id, criteria_id, gpax, status, transcript_url, portfolio_url)
                 VALUES (${user_id}, ${criteria_id}, ${gpax}, 'pending', ${transcriptUrl}, ${portfolioUrl})
             `;
-            return res.status(201).json({ message: "Application submitted" });
         }
-    } catch (err) {
-        console.error("Apply error:", err);
-        // Clean up the temp files multer created
+
+        // ✅ ถ้าทำงานสำเร็จ เคลียร์ไฟล์ชั่วคราวทิ้ง (แก้ปัญหา Restart / Logout)
         if (req.files) {
-            Object.values(req.files).flat().forEach(file => fs.unlinkSync(file.path));
+            Object.values(req.files).flat().forEach(file => {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            });
         }
-        res.status(500).json({ error: "Server error during application" });
+
+        return res.status(201).json({ message: "Application submitted" });
+
+    } catch (err) {
+        console.error("Apply error:", err.message || err);
+        
+        // ✅ ถ้าพังระหว่างอัปโหลด หรือพังเพราะข้อมูลซ้ำ ให้เคลียร์ไฟล์ทิ้งด้วย
+        if (req.files) {
+            Object.values(req.files).flat().forEach(file => {
+                if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+            });
+        }
+        
+        // ส่งข้อความ Error กลับไปให้ Frontend อย่างถูกต้อง ไม่ใช่หน้าเว็บ HTML ขาวๆ
+        const errorMsg = err.message || "Server error during application";
+        const status = errorMsg.includes("ส่งใบสมัคร") ? 409 : 500;
+        
+        res.status(status).json({ error: errorMsg });
     }
 });
 
@@ -731,16 +785,17 @@ app.post('/api/faculties', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     try {
         if (useSupabase) {
-            const {data, error} = await supabase.from('FACULTIES').insert([{ faculty_name }]);
+            const { data, error } = await supabase.from('FACULTIES').insert([{ faculty_name }]);
             if (error) throw error;
             return res.status(201).json({ message: "เพิ่มคณะสำเร็จ" });
-        } else { sql.query`INSERT INTO FACULTIES (faculty_name) VALUES (${faculty_name})`;
+        } else {
+            sql.query`INSERT INTO FACULTIES (faculty_name) VALUES (${faculty_name})`;
             return res.status(201).json({ message: "เพิ่มคณะสำเร็จ" });
         }
-    }  catch (err) {
-            res.status(500).json({ error: err.message });
-        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
+}
 );
 
 
@@ -1052,7 +1107,7 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                 supabase.from("USERS").select("edu_status, current_level, gpax_5_term, plan_id, high_school").eq("id", userId).single(),
                 supabase.from("USER_SCORES").select("subject_id, score_value").eq("user_id", userId),
                 supabase.from("APPLICATION").select(`
-                    id, status, application_date, failReasons,
+                    id, status, application_date,
                     ADMISSION_CRITERIA (
                         tcas_round,
                         ADMISSION_PROJECTS ( project_name ),
@@ -1239,12 +1294,12 @@ app.get('/api/staff/applicants', async (req, res) => {
 
             const { data, error } = await query;
             if (error) throw error;
-            
+
             const formattedData = data.map(app => {
                 let totalScore = 0;
                 const criteriaSubjects = app.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || [];
                 const userScores = app.USERS?.USER_SCORES || [];
-                
+
                 criteriaSubjects.forEach(reqSub => {
                     const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id);
                     if (userSubScore) {
@@ -1253,7 +1308,7 @@ app.get('/api/staff/applicants', async (req, res) => {
                         totalScore += (rawScore * weight) / 100;
                     }
                 });
-                
+
                 return { ...app, calculatedTotalScore: totalScore };
             });
 
@@ -1298,7 +1353,7 @@ app.get('/api/staff/applicants', async (req, res) => {
             const formattedData = result.recordset.map(row => {
                 const userScores = row.USER_SCORES ? JSON.parse(row.USER_SCORES) : [];
                 const criteriaSubjects = row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : [];
-                
+
                 let totalScore = 0;
                 criteriaSubjects.forEach(reqSub => {
                     const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id);
@@ -1313,7 +1368,7 @@ app.get('/api/staff/applicants', async (req, res) => {
                     id: row.id,
                     status: row.status,
                     gpax: row.gpax,
-                    calculatedTotalScore: totalScore, 
+                    calculatedTotalScore: totalScore,
                     USERS: {
                         first_name: row.first_name,
                         last_name: row.last_name,
@@ -1372,7 +1427,7 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
                 .single();
 
             if (error) throw error;
-            
+
             let scoreData = [];
             if (applicantData && applicantData.user_id) {
                 const { data } = await supabase
@@ -1381,7 +1436,7 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
                     .eq('user_id', applicantData.user_id);
                 if (data) scoreData = data;
             }
-            
+
             return res.json({ applicant: applicantData, scores: scoreData });
 
         } else {
@@ -1454,12 +1509,12 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
                 WHERE us.user_id = ${row.user_id}
                 FOR JSON PATH
             `;
-            
+
             const scores = scoresResult.recordset[0] ? Object.values(scoresResult.recordset[0])[0] : '[]';
 
-            return res.json({ 
-                applicant: formattedApplicant, 
-                scores: JSON.parse(scores) 
+            return res.json({
+                applicant: formattedApplicant,
+                scores: JSON.parse(scores)
             });
         }
     } catch (err) {
