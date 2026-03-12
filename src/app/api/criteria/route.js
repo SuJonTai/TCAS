@@ -1,19 +1,39 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/mongodb';
 import AdmissionCriteria, { CriteriaPlan, CriteriaSubject } from '@/models/AdmissionCriteria';
+import AdmissionProject from '@/models/AdmissionProject';
+import Program from '@/models/Program';
 
 export async function GET() {
   try {
     await connectToDatabase();
     
-    // Mongoose populate is great, but we set up virtuals for CRITERIA_PLANS and CRITERIA_SUBJECTS
+    // Fetch criteria with related plans and subjects
     const criteria = await AdmissionCriteria.find()
       .populate('CRITERIA_PLANS')
       .populate('CRITERIA_SUBJECTS')
       .sort({ id: -1 })
       .lean({ virtuals: true });
 
-    return NextResponse.json(criteria);
+    // Fetch lookup tables for projects and programs
+    const [projects, programs] = await Promise.all([
+      AdmissionProject.find().lean(),
+      Program.find().lean()
+    ]);
+
+    // Enrich each criteria with PROJECTS and PROGRAMS data
+    const enriched = criteria.map(c => {
+      const project = projects.find(p => p.id === c.project_id);
+      const program = programs.find(p => p.id === c.program_id);
+
+      return {
+        ...c,
+        PROJECTS: project ? { _id: project._id, id: project.id, project_name: project.project_name } : null,
+        PROGRAMS: program ? { _id: program._id, id: program.id, prog_name: program.prog_name } : null,
+      };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error("GET Criteria error:", error);
     return NextResponse.json({ error: "Failed to fetch criteria" }, { status: 500 });

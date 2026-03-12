@@ -14,18 +14,18 @@ export async function GET(req) {
 
     await connectToDatabase();
 
-    // Fetch user with their scores populated
+    // Fetch user (without password)
     const user = await User.findById(session.user.id)
-      .populate({
-        path: 'USER_SCORES',
-        populate: { path: 'SUBJECTS' }
-      })
-      .select('-password') // Ensure password hash is never sent
+      .select('-password')
       .lean({ virtuals: true });
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
+
+    // Fetch scores for this user separately
+    const scores = await ApplicantScore.find({ user_id: session.user.id }).lean();
+    user.USER_SCORES = scores || [];
 
     return NextResponse.json(user);
   } catch (error) {
@@ -53,6 +53,7 @@ export async function PUT(req) {
       current_level: data.current_level,
       high_school: data.high_school,
       plan_id: data.plan_id,
+      gpax_5_term: data.gpax_5_term,
     };
     
     // Remove undefined fields

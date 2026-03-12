@@ -50,8 +50,9 @@ export default function StudentScores() {
           fetch('/api/academic/subject')
         ]);
         
+        let allPlans = [];
         if (plansRes.ok) {
-          const allPlans = await plansRes.json();
+          allPlans = await plansRes.json();
           setPlans(allPlans);
         }
         
@@ -64,7 +65,8 @@ export default function StudentScores() {
         const userRes = await fetch('/api/users/me');
         if (userRes.ok) {
           const userData = await userRes.json();
-          const detectedType = plansRes.ok ? (await plansRes.json()).find(p => String(p._id) === String(userData.plan_id))?.plan_group || "" : "";
+          // Detect education type from the user's saved plan
+          const detectedType = allPlans.find(p => String(p.id) === String(userData.plan_id))?.plan_group || "";
 
           setFormData({
             high_school: userData.high_school || "",
@@ -87,7 +89,6 @@ export default function StudentScores() {
           const appRes = await fetch('/api/applications');
           if (appRes.ok) {
              const allApps = await appRes.json();
-             // In StaffResults we return all apps. Here we filter locally for the current user's applications
              const userApps = allApps.filter(app => String(app.user_id) === String(userData._id));
              setApplications(userApps);
           }

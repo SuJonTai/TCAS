@@ -39,7 +39,7 @@ function MajorLink({ major }) {
       {sortedCriteria.length > 0 && (
         <div className="flex flex-col gap-1 pl-6 border-t border-border/50 pt-2">
           {sortedCriteria.map((criteria) => (
-            <div key={criteria.id} className="text-xs text-muted-foreground flex items-center gap-2">
+            <div key={criteria._id} className="text-xs text-muted-foreground flex items-center gap-2">
                <span className="font-medium text-primary/80">รอบ {criteria.tcas_round} :</span> 
               <span>
                 {criteria.start_date && criteria.end_date 
