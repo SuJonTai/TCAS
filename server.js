@@ -29,8 +29,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '.env.local') });
-console.log("DEBUG: SUPABASE_URL from env:", process.env.SUPABASE_URL);
-console.log("DEBUG: VITE_SUPABASE_URL from env:", process.env.VITE_SUPABASE_URL);
 
 const app = express();
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -38,52 +36,37 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = 3000;
-
-// ==========================================
-// 1. INITIALIZE DATABASE CONNECTIONS
-// ==========================================
-
-// --- Supabase Setup ---
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
 
 let supabase = null;
 
 if (!supabaseUrl || !supabaseKey) {
-    console.error("⚠️ Warning: Missing Supabase Configuration");
-    if (!supabaseUrl) console.error("- Missing: SUPABASE_URL");
-    if (!supabaseKey) console.error("- Missing: SUPABASE_KEY (Anon Key)");
+    console.error("Supabase client failed to initialize");
 } else {
     supabase = createClient(supabaseUrl, supabaseKey);
-    console.log("✅ Successfully initialized Supabase client");
+    console.log("Successfully initialized Supabase client");
 }
 
-// --- MS SQL Setup ---
 const connectionString = process.env.MSSQL_CONNECTION_STRING;
 if (!connectionString) {
     console.error("⚠️ Warning: MSSQL_CONNECTION_STRING is missing in .env.local");
 } else {
     sql.connect(connectionString)
         .then(pool => {
-            if (pool.connected) console.log("✅ Successfully connected to Local MS SQL");
+            if (pool.connected) console.log("Successfully connected to Local MS SQL");
         })
         .catch(err => {
-            console.error("❌ MS SQL Connection Failed:", err.message);
+            console.error("MS SQL Connection Failed:", err.message);
         });
 }
 
 console.log(`🚀 Server starting... Ready to handle requests.`);
 
-// ==========================================
-// 2. HELPER FUNCTION: DETECT DB TYPE
-// ==========================================
 const isSupabaseRequest = (req) => {
     return req.headers['x-db-type'] === 'supabase';
 };
 
-// ==========================================
-// 3. API ENDPOINTS
-// ==========================================
 
 app.get('/api/health', (req, res) => {
     const useSupabase = isSupabaseRequest(req);
@@ -760,7 +743,7 @@ app.post('/api/faculties', async (req, res) => {
     }
 );
 
-// --- เพิ่มภาควิชาใหม่ (แก้ปัญหา 404 ของคุณ) ---
+
 app.post('/api/departments', async (req, res) => {
     const { faculty_id, dept_name } = req.body;
     const useSupabase = isSupabaseRequest(req);
@@ -778,7 +761,6 @@ app.post('/api/departments', async (req, res) => {
     }
 });
 
-// --- เพิ่มสาขาวิชาใหม่ ---
 app.post('/api/programs', async (req, res) => {
     const { dept_id, prog_name } = req.body;
     const useSupabase = isSupabaseRequest(req);
@@ -796,7 +778,6 @@ app.post('/api/programs', async (req, res) => {
     }
 });
 
-// --- เพิ่มโครงการรับเข้าใหม่ ---
 app.post('/api/admission-projects', async (req, res) => {
     const { project_name } = req.body;
     const useSupabase = isSupabaseRequest(req);
@@ -815,7 +796,6 @@ app.post('/api/admission-projects', async (req, res) => {
 });
 
 app.get('/api/criteria', async (req, res) => {
-    // อ่านค่าประเภท DB จาก Header ที่ส่งมาจาก apiService.js
     const dbType = req.headers['x-db-type'] || 'supabase';
 
     try {
@@ -869,11 +849,6 @@ app.get('/api/criteria', async (req, res) => {
     }
 });
 
-// ==========================================
-// --- NEW & UPDATED ENDPOINTS FOR CRITERIA ---
-// ==========================================
-
-// --- GET All Projects ---
 app.get('/api/projects', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     try {
@@ -888,7 +863,6 @@ app.get('/api/projects', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- GET All Subjects ---
 app.get('/api/subjects', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     try {
@@ -903,7 +877,6 @@ app.get('/api/subjects', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- GET All Study Plans ---
 app.get('/api/study-plans', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     try {
@@ -918,7 +891,6 @@ app.get('/api/study-plans', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- POST Create Criteria ---
 app.post('/api/criteria', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { criteria, study_plans, subjects } = req.body;
@@ -980,7 +952,6 @@ app.post('/api/criteria', async (req, res) => {
     }
 });
 
-// --- PUT Update Criteria ---
 app.put('/api/criteria/:id', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { id } = req.params;
@@ -991,11 +962,8 @@ app.put('/api/criteria/:id', async (req, res) => {
             const { error: critErr } = await supabase.from('ADMISSION_CRITERIA').update(criteria).eq('id', id);
             if (critErr) throw critErr;
 
-            // ลบของเก่าออก
             await supabase.from('CRITERIA_PLANS').delete().eq('criteria_id', id);
             await supabase.from('CRITERIA_SUBJECTS').delete().eq('criteria_id', id);
-
-            // แอดของใหม่เข้าไป
             if (study_plans && study_plans.length > 0) {
                 const plansToInsert = study_plans.map(plan_id => ({ criteria_id: id, plan_id }));
                 await supabase.from('CRITERIA_PLANS').insert(plansToInsert);
@@ -1044,7 +1012,6 @@ app.put('/api/criteria/:id', async (req, res) => {
     }
 });
 
-// --- DELETE Criteria ---
 app.delete('/api/criteria/:id', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { id } = req.params;
@@ -1102,15 +1069,10 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                 applications: appsRes.data || []
             });
         } else {
-            // ==========================================
-            // MS SQL Logic (แก้ไขใหม่)
-            // ==========================================
             const plans = await sql.query`SELECT * FROM STUDY_PLANS ORDER BY plan_name ASC`;
             const subjects = await sql.query`SELECT * FROM SUBJECTS ORDER BY id ASC`;
             const user = await sql.query`SELECT edu_status, current_level, gpax_5_term, plan_id, high_school FROM USERS WHERE id = ${userId}`;
             const scores = await sql.query`SELECT subject_id, score_value FROM USER_SCORES WHERE user_id = ${userId}`;
-
-            // 1. ใช้ LEFT JOIN แบบ Flat ธรรมดา
             const appsResult = await sql.query`
                 SELECT 
                     a.id, a.status, a.application_date,
@@ -1127,8 +1089,6 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                 WHERE a.user_id = ${userId}
                 ORDER BY a.application_date DESC
             `;
-
-            // 2. นำข้อมูล Flat มาแปลงเป็น Nested Object ด้วย JavaScript ให้ตรงกับโครงสร้างที่ React คาดหวัง
             const apps = appsResult.recordset.map(row => ({
                 id: row.id,
                 status: row.status,
@@ -1145,7 +1105,6 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
                     }
                 }
             }));
-
             return res.json({
                 plans: plans.recordset,
                 subjects: subjects.recordset,
@@ -1160,7 +1119,6 @@ app.get('/api/student/dashboard/:userId', async (req, res) => {
     }
 });
 
-// --- PUT Update Student Profile & Scores ---
 app.put('/api/student/profile/:userId', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { userId } = req.params;
@@ -1170,7 +1128,6 @@ app.put('/api/student/profile/:userId', async (req, res) => {
         let finalPlanId = plan_id;
 
         if (useSupabase) {
-            // Check custom plan for Supabase
             if (plan_id === "other" && other_plan) {
                 const { data: existing } = await supabase.from("STUDY_PLANS").select("id").ilike("plan_name", other_plan).eq("plan_group", edu_type).maybeSingle();
                 if (existing) {
@@ -1244,7 +1201,6 @@ app.put('/api/student/profile/:userId', async (req, res) => {
     }
 });
 
-// --- DELETE Applications ---
 app.delete('/api/applications/:appId', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { appId } = req.params;
@@ -1261,14 +1217,12 @@ app.delete('/api/applications/:appId', async (req, res) => {
     }
 });
 
-// --- GET Staff Applicant Results (With nested relations) ---
 app.get('/api/staff/applicants', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { round, faculty_id, program_id } = req.query;
 
     try {
         if (useSupabase) {
-            // 🚨 1. ฝั่ง Supabase: เพิ่ม weight เข้าไปใน CRITERIA_SUBJECTS
             let query = supabase.from('APPLICATION').select(`
                 id, status, gpax,
                 USERS ( first_name, last_name, edu_status, current_level, plan_id, STUDY_PLANS ( plan_name, plan_group ), USER_SCORES ( subject_id, score_value ) ),
@@ -1286,7 +1240,6 @@ app.get('/api/staff/applicants', async (req, res) => {
             const { data, error } = await query;
             if (error) throw error;
             
-            // คำนวณคะแนนของ Supabase ก่อนส่ง
             const formattedData = data.map(app => {
                 let totalScore = 0;
                 const criteriaSubjects = app.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || [];
@@ -1307,9 +1260,6 @@ app.get('/api/staff/applicants', async (req, res) => {
             return res.json(formattedData);
 
         } else {
-            // =====================================
-            // MS SQL Server Logic
-            // =====================================
             let sqlQuery = `
                 SELECT
                     a.id, a.status, a.gpax,
@@ -1349,7 +1299,6 @@ app.get('/api/staff/applicants', async (req, res) => {
                 const userScores = row.USER_SCORES ? JSON.parse(row.USER_SCORES) : [];
                 const criteriaSubjects = row.CRITERIA_SUBJECTS ? JSON.parse(row.CRITERIA_SUBJECTS) : [];
                 
-                // 🚨 คำนวณคะแนนถ่วงน้ำหนักตรงนี้
                 let totalScore = 0;
                 criteriaSubjects.forEach(reqSub => {
                     const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id);
@@ -1424,7 +1373,6 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
 
             if (error) throw error;
             
-            // ดึงคะแนนแยกออกมาเพื่อส่งไปในก้อนเดียว
             let scoreData = [];
             if (applicantData && applicantData.user_id) {
                 const { data } = await supabase
@@ -1437,7 +1385,6 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
             return res.json({ applicant: applicantData, scores: scoreData });
 
         } else {
-            // MS SQL Server Logic
             const appResult = await sql.query`
                 SELECT
                     a.id, a.user_id, a.status, a.gpax, a.portfolio_url, a.transcript_url,
@@ -1500,7 +1447,6 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
                 }
             };
 
-            // Fetch Scores
             const scoresResult = await sql.query`
                 SELECT us.subject_id, us.score_value, s.subject_name AS 'SUBJECTS.subject_name'
                 FROM USER_SCORES us
@@ -1522,7 +1468,6 @@ app.get('/api/staff/applicants/:id', async (req, res) => {
     }
 });
 
-// --- PUT Update Application Status ---
 app.put('/api/staff/applicants/:id/status', async (req, res) => {
     const useSupabase = isSupabaseRequest(req);
     const { id } = req.params;
