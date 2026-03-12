@@ -275,7 +275,7 @@ export default function StudentScores() {
               const project = criteria.ADMISSION_PROJECTS || {};
 
                return (
-                <div key={app.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border bg-card hover:bg-muted/50 hover:shadow-md transition-all gap-4">
+                <div key={app._id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border bg-card hover:bg-muted/50 hover:shadow-md transition-all gap-4">
                   <div className="space-y-1 flex-1">
                      <div className="flex flex-wrap items-center gap-2 mb-2">
                        <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-md">
