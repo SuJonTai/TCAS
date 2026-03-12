@@ -256,7 +256,7 @@ export default function AdmissionDetailPage() {
 
       <div className="flex flex-col gap-4">
         {data.ADMISSION_CRITERIA?.length > 0 ? (
-          data.ADMISSION_CRITERIA.map((round) => <RoundCard key={round.id} round={round} />)
+          data.ADMISSION_CRITERIA.map((round) => <RoundCard key={round._id} round={round} />)
         ) : (
           <p className="text-muted-foreground text-sm">ยังไม่มีการกำหนดเกณฑ์รับสมัครสำหรับสาขาวิชานี้</p>
         )}
