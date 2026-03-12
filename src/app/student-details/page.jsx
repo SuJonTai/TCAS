@@ -269,10 +269,10 @@ export default function StudentScores() {
           <div className="grid gap-4">
              {applications.map((app) => {
               const criteria = app.ADMISSION_CRITERIA || {};
-               const program = criteria.PROGRAMS || {};
-              const dept = program.DEPARTMENTS || {};
-              const faculty = dept.FACULTIES || {};
-              const project = criteria.ADMISSION_PROJECTS || {};
+               const program = criteria.PROGRAM || {};
+              const dept = program.DEPT || {};
+              const faculty = dept.FACULTY || {};
+              const project = criteria.PROJECTS || {};
 
                return (
                 <div key={app._id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-border bg-card hover:bg-muted/50 hover:shadow-md transition-all gap-4">
@@ -295,7 +295,7 @@ export default function StudentScores() {
                   <div>
                     <button
                       type="button"
-                       onClick={() => setAppToDelete(app.id)}
+                       onClick={() => setAppToDelete(app._id)}
                       className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-lg transition-colors"
                     >
                       <Trash2 size={16} /> ยกเลิกการสมัคร
