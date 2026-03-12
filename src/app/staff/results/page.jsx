@@ -43,18 +43,26 @@ function ApplicantListTableContent() {
       
       if (roundFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.tcas_round === parseInt(roundFilter, 10))
       if (programFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.program_id === parseInt(programFilter, 10))
-      if (facultyFilter) filteredData = filteredData.filter(app => app.ADMISSION_CRITERIA?.PROGRAM.DEPT.faculty_id === parseInt(facultyFilter, 10))
+      
+      // Fix faculty filter path
+      if (facultyFilter) {
+        filteredData = filteredData.filter(app => {
+          const facultyId = app.ADMISSION_CRITERIA?.PROGRAM?.DEPT?.faculty_id;
+          return parseInt(facultyId, 10) === parseInt(facultyFilter, 10);
+        });
+      }
 
       let formattedData = filteredData.map(app => {
         const criteria = app.ADMISSION_CRITERIA || {}
         const user = app.USERS || {}
         const userScores = app.APPLICANT_SCORES || []
         const requiredSubjects = criteria.CRITERIA_SUBJECTS || []
-        const appInfo = app.APPLICANT_INFO || {}
         
         const failReasons = []
 
-        const passGpax = (appInfo.gpax || 0) >= (criteria.min_gpax || 0)
+        // Use application snapshot GPAX or user's current GPAX
+        const currentGpax = app.gpax ?? user.gpax_5_term ?? 0;
+        const passGpax = currentGpax >= (criteria.min_gpax || 0);
         if (!passGpax) failReasons.push("GPAX ไม่ถึงเกณฑ์")
         
         let rawReqs = criteria.edu_status_req;
@@ -73,69 +81,60 @@ function ApplicantListTableContent() {
         const requiredStatuses = reqs.filter(r => validStatuses.includes(r));
         const requiredTypes = reqs.filter(r => validTypes.includes(r));
         
-        let rawUserEdu = appInfo.edu_status;
-        let userEduData = [];
-        if (Array.isArray(rawUserEdu)) {
-          userEduData = rawUserEdu;
-        } else if (typeof rawUserEdu === 'string') {
-           try { userEduData = JSON.parse(rawUserEdu); } 
-          catch (e) { userEduData = rawUserEdu.split(',').map(item => item.trim()); }
-        }
-        if (!Array.isArray(userEduData)) userEduData = rawUserEdu ? [rawUserEdu] : [];
+        // Education status check
+        const userEduStatus = user.edu_status || "";
+        const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.includes(userEduStatus);
 
-        const planName = appInfo.study_plan || "";
-        let inferredPlanGroup = "";
+        // Education type (plan group) check
+        const planSearchStr = (user.high_school || "") + (user.edu_status || "") + (user.study_plan || "");
+        let inferredPlanGroup = "high-school"; 
 
-        if (planName.includes("ปวช") || planName.includes("เตรียมวิศว")) {
+        if (planSearchStr.includes("ปวช") || planSearchStr.includes("เตรียมวิศว")) {
            inferredPlanGroup = "vocational";
-        } else if (planName.includes("ปวส")) {
+        } else if (planSearchStr.includes("ปวส")) {
           inferredPlanGroup = "high-vocational";
-        } else if (planName) {
-           inferredPlanGroup = "high-school"; 
         }
 
-        const passEduStatus = requiredStatuses.length === 0 || requiredStatuses.some(status => userEduData.includes(status));
         const passEduType = requiredTypes.length === 0 || requiredTypes.includes(inferredPlanGroup);
 
         if (!passEduStatus) failReasons.push("สถานะการศึกษาไม่ตรงเกณฑ์");
-        if (!passEduType) failReasons.push(`วุฒิการศึกษาไม่ตรงเกณฑ์`);
+        if (!passEduType) failReasons.push("วุฒิการศึกษาไม่ตรงเกณฑ์");
 
         let passScores = true
         let totalScore = 0 
         
         requiredSubjects.forEach(reqSub => {
-           const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id)
+          const userSubScore = userScores.find(s => s.subject_id === reqSub.subject_id)
           
           if (!userSubScore || userSubScore.score_value == null) {
             passScores = false
-            failReasons.push(`ไม่ได้กรอกคะแนนที่จำเป็น`)
-           } else {
-             const scoreValue = parseFloat(userSubScore.score_value) || 0;
-            
+            failReasons.push(`ขาดคะแนนวิชาที่จำเป็น`)
+          } else {
+            const scoreValue = parseFloat(userSubScore.score_value) || 0;
             if (scoreValue < reqSub.min_score) {
-               passScores = false
+              passScores = false
               failReasons.push(`คะแนนไม่ถึงขั้นต่ำ (${reqSub.min_score})`)
             }
             totalScore += scoreValue; 
           }
-         })
+        })
 
         const passAll = passGpax && passEduStatus && passEduType && passScores
 
         return {
           id: app._id || app.id,
           name: `${user.first_name || 'ไม่ระบุ'} ${user.last_name || ''}`,
-          faculty: criteria.FACULTY?.faculty_name || 'ไม่ระบุ',
+          faculty: criteria.PROGRAM?.DEPT?.FACULTY?.faculty_name || 'ไม่ระบุ',
           major: criteria.PROGRAM?.prog_name || 'ไม่ระบุ',
           round: criteria.tcas_round || '-',
-          gpa: appInfo.gpax || 0.00,
+          gpa: currentGpax,
           minGpa: criteria.min_gpax || 0.00,
           totalScore: totalScore, 
           passAll,
           failReasons,
           status: app.status
         }
-       })
+      })
 
       setRawData(formattedData)
     } catch (error) {
@@ -149,22 +148,22 @@ function ApplicantListTableContent() {
     fetchApplicants()
   }, [roundFilter, facultyFilter, programFilter])
 
-   const applicants = useMemo(() => {
+  const applicants = useMemo(() => {
     let result = rawData
     
     if (qualFilter === "pass") result = rawData.filter(a => a.passAll)
     if (qualFilter === "fail") result = rawData.filter(a => !a.passAll)
     
-     return result.sort((a, b) => {
-       if (b.totalScore !== a.totalScore) {
+    return result.sort((a, b) => {
+      if (b.totalScore !== a.totalScore) {
         return b.totalScore - a.totalScore
       }
       return b.gpa - a.gpa
     })
   }, [rawData, qualFilter])
 
-   const handleDeleteApplication = async (id, name) => {
-     const isConfirmed = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบใบสมัครของ "${name}"?\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`)
+  const handleDeleteApplication = async (id, name) => {
+    const isConfirmed = window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบใบสมัครของ "${name}"?\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`)
     if (isConfirmed) {
       try {
         const res = await fetch(`/api/applications/${id}`, { method: 'DELETE' })
@@ -174,33 +173,33 @@ function ApplicantListTableContent() {
         }
         alert("ลบข้อมูลใบสมัครเรียบร้อยแล้ว")
         fetchApplicants()
-       } catch (err) {
+      } catch (err) {
         console.error("Error deleting application:", err)
-         alert("เกิดข้อผิดพลาดในการลบข้อมูล: " + err.message)
+        alert("เกิดข้อผิดพลาดในการลบข้อมูล: " + err.message)
       }
     }
   }
 
   const exportToPDF = async () => {
-     setExporting(true)
+    setExporting(true)
     const element = document.getElementById('pdf-content') 
     
     if (element) {
-       try {
+      try {
         const originalStyle = element.style.overflow
         element.style.overflow = 'visible'
 
-         const dataUrl = await toPng(element, { 
+        const dataUrl = await toPng(element, { 
           quality: 1,
           pixelRatio: 3, 
-           backgroundColor: '#ffffff',
+          backgroundColor: '#ffffff',
           filter: (node) => !(node.tagName === 'LINK' && node.href?.includes('fonts.googleapis.com')) && !node.classList?.contains('no-export')
         })
         
         element.style.overflow = originalStyle
 
         const pdf = new jsPDF('l', 'mm', 'a4') 
-         const pageWidth = pdf.internal.pageSize.getWidth()
+        const pageWidth = pdf.internal.pageSize.getWidth()
         const pageHeight = pdf.internal.pageSize.getHeight()
 
         const margin = 15; 
@@ -208,15 +207,15 @@ function ApplicantListTableContent() {
         
         const imgProps = pdf.getImageProperties(dataUrl)
         const displayWidth = availableWidth; 
-         const displayHeight = (imgProps.height * displayWidth) / imgProps.width
+        const displayHeight = (imgProps.height * displayWidth) / imgProps.width
 
         pdf.addImage(dataUrl, 'PNG', margin, 20, displayWidth, displayHeight)
-         pdf.setFontSize(10)
+        pdf.setFontSize(10)
         pdf.text(`รายงานรายชื่อผู้สมัคร - วันที่ออกเอกสาร: ${new Date().toLocaleDateString('th-TH')}`, margin, pageHeight - 10)
-         pdf.save(`applicant_list_${new Date().getTime()}.pdf`)
+        pdf.save(`applicant_list_${new Date().getTime()}.pdf`)
       } catch (err) {
         console.error("PDF Error:", err)
-         alert("เกิดข้อผิดพลาดในการสร้าง PDF")
+        alert("เกิดข้อผิดพลาดในการสร้าง PDF")
       }
     }
     setExporting(false)
@@ -225,114 +224,114 @@ function ApplicantListTableContent() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-         <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <Link
-             href="/staff"
+            href="/staff"
             className="mb-2 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
           >
-             <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4" />
             กลับไปหน้าค้นหา
-           </Link>
+          </Link>
           <h1 className="font-[family-name:var(--font-poppins)] text-2xl font-bold tracking-tight text-foreground">
-             รายชื่อผู้สมัคร
+            รายชื่อผู้สมัคร
           </h1>
           <p className="text-sm text-muted-foreground">
             พบผู้สมัครทั้งหมด <span className="font-semibold text-foreground">{applicants.length}</span> คน
-           </p>
+          </p>
         </div>
         
-         <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium text-muted-foreground shadow-sm">
-             <Filter className="mr-2 h-4 w-4" />
+            <Filter className="mr-2 h-4 w-4" />
             ตัวกรองที่เลือก: {roundFilter ? `รอบ ${roundFilter}` : "ทุกรอบ"}
           </div>
 
           <select
             value={qualFilter}
-             onChange={(e) => setQualFilter(e.target.value)}
+            onChange={(e) => setQualFilter(e.target.value)}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm font-medium text-muted-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary focus:border-primary"
           >
-             <option value="all">คุณสมบัติ: ทั้งหมด</option>
+            <option value="all">คุณสมบัติ: ทั้งหมด</option>
             <option value="pass">ผ่านเกณฑ์ทั้งหมด</option>
-             <option value="fail">ไม่ผ่านเกณฑ์</option>
+            <option value="fail">ไม่ผ่านเกณฑ์</option>
           </select>
           
           <button 
-             onClick={exportToPDF}
+            onClick={exportToPDF}
             disabled={exporting || loading || applicants.length === 0}
             className="inline-flex h-9 items-center justify-center rounded-md bg-secondary px-3 text-sm font-medium text-secondary-foreground shadow-sm hover:bg-secondary/80 disabled:opacity-50"
-           >
+          >
             {exporting ? (
-               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <FileDown className="mr-2 h-4 w-4" />
             )}
-             {exporting ? "กำลังสร้าง PDF..." : "ส่งออก (PDF)"}
+            {exporting ? "กำลังสร้าง PDF..." : "ส่งออก (PDF)"}
           </button>
-         </div>
+        </div>
       </div>
 
-       <div id="pdf-content" className="rounded-xl border border-border bg-card shadow-sm p-4">
+      <div id="pdf-content" className="rounded-xl border border-border bg-card shadow-sm p-4">
         <div className="mb-4 text-center font-bold text-lg hidden print:block text-foreground">
-           รายชื่อผู้สมัคร TCAS - มหาวิทยาลัยเทคโนโลยีพระจอมเกล้าพระนครเหนือ
+          รายชื่อผู้สมัคร TCAS - มหาวิทยาลัยเทคโนโลยีพระจอมเกล้าพระนครเหนือ
         </div>
 
-         <div className="overflow-x-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-             <thead className="border-b bg-muted/50 text-muted-foreground">
+            <thead className="border-b bg-muted/50 text-muted-foreground">
               <tr>
-                 <th className="h-12 px-4 align-middle font-medium">ลำดับ</th>
+                <th className="h-12 px-4 align-middle font-medium">ลำดับ</th>
                 <th className="h-12 px-4 align-middle font-medium">ชื่อ-นามสกุล</th>
                 <th className="h-12 px-4 align-middle font-medium">สาขาวิชา</th>
-                 <th className="h-12 px-4 align-middle font-medium text-center">รอบที่</th>
+                <th className="h-12 px-4 align-middle font-medium text-center">รอบที่</th>
                 <th className="h-12 px-4 align-middle font-medium text-center">GPAX (เกณฑ์)</th>
-                 <th className="h-12 px-4 align-middle font-medium text-center">คะแนนรวม</th>
+                <th className="h-12 px-4 align-middle font-medium text-center">คะแนนรวม</th>
                 <th className="h-12 px-4 align-middle font-medium text-center">การประเมินคุณสมบัติ</th>
                 <th className="h-12 px-4 align-middle font-medium text-center">สถานะ</th>
-                 <th className="h-12 px-4 align-middle font-medium text-center no-export">จัดการ</th>
+                <th className="h-12 px-4 align-middle font-medium text-center no-export">จัดการ</th>
               </tr>
             </thead>
-             <tbody>
+            <tbody>
               {loading ? (
                 <tr>
-                   <td colSpan="9" className="p-8 text-center text-muted-foreground">กำลังโหลดข้อมูล...</td>
+                  <td colSpan="9" className="p-8 text-center text-muted-foreground">กำลังโหลดข้อมูล...</td>
                 </tr>
-               ) : applicants.length > 0 ? (
+              ) : applicants.length > 0 ? (
                 applicants.map((a, i) => (
-                   <tr key={a.id} className="border-b transition-colors hover:bg-muted/50 border-border">
+                  <tr key={a.id} className="border-b transition-colors hover:bg-muted/50 border-border">
                     <td className="p-4 align-middle text-muted-foreground">{i + 1}</td>
                     <td className="p-4 align-middle">
-                       <Link
+                      <Link
                         href={`/staff/applicant/${a.id}`}
-                         className="font-medium text-primary underline-offset-4 hover:underline"
+                        className="font-medium text-primary underline-offset-4 hover:underline"
                       >
-                         {a.name}
+                        {a.name}
                       </Link>
-                     </td>
+                    </td>
                     <td className="p-4 align-middle">
                       <p className="text-sm font-medium text-foreground">{a.major}</p>
-                       <p className="text-xs text-muted-foreground">{a.faculty}</p>
+                      <p className="text-xs text-muted-foreground">{a.faculty}</p>
                     </td>
-                     <td className="p-4 align-middle text-center text-sm text-foreground">{a.round}</td>
+                    <td className="p-4 align-middle text-center text-sm text-foreground">{a.round}</td>
                     <td className="p-4 align-middle text-center text-sm">
-                       <span className={`font-medium ${a.gpa < a.minGpa ? 'text-destructive' : 'text-primary'}`}>
-                        {a.gpa.toFixed(2)}
+                      <span className={`font-medium ${a.gpa < a.minGpa ? 'text-destructive' : 'text-primary'}`}>
+                        {typeof a.gpa === 'number' ? a.gpa.toFixed(2) : a.gpa}
                       </span>
-                       <span className="text-xs text-muted-foreground ml-1">({a.minGpa.toFixed(2)})</span>
+                      <span className="text-xs text-muted-foreground ml-1">({typeof a.minGpa === 'number' ? a.minGpa.toFixed(2) : a.minGpa})</span>
                     </td>
                     <td className="p-4 align-middle text-center font-semibold text-primary">
-                       {a.totalScore > 0 ? a.totalScore.toFixed(2) : '-'}
+                      {a.totalScore > 0 ? a.totalScore.toFixed(2) : '-'}
                     </td>
-                     <td className="p-4 align-middle text-center">
+                    <td className="p-4 align-middle text-center">
                       {a.passAll ? (
-                         <div className="inline-flex items-center gap-1 text-primary bg-primary/10 px-2 py-1 rounded-md text-xs font-medium">
+                        <div className="inline-flex items-center gap-1 text-primary bg-primary/10 px-2 py-1 rounded-md text-xs font-medium">
                           <CheckCircle2 size={14} /> ผ่านทุกเกณฑ์
-                         </div>
-                       ) : (
+                        </div>
+                      ) : (
                         <div className="flex flex-col items-center gap-1">
-                           <div className="inline-flex items-center gap-1 text-destructive bg-destructive/10 px-2 py-1 rounded-md text-xs font-medium">
+                          <div className="inline-flex items-center gap-1 text-destructive bg-destructive/10 px-2 py-1 rounded-md text-xs font-medium">
                             <XCircle size={14} /> ไม่ผ่านเกณฑ์
-                           </div>
+                          </div>
                           <span className="text-[10px] text-muted-foreground max-w-[120px] text-center leading-tight">
                             {a.failReasons.join(", ")}
                           </span>
@@ -340,32 +339,32 @@ function ApplicantListTableContent() {
                       )}
                     </td>
                     <td className="p-4 align-middle text-center"><StatusBadge status={a.status} /></td>
-                     <td className="p-4 align-middle text-center no-export">
+                    <td className="p-4 align-middle text-center no-export">
                       <button 
-                         onClick={() => handleDeleteApplication(a.id, a.name)}
+                        onClick={() => handleDeleteApplication(a.id, a.name)}
                         className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                         title="ลบใบสมัคร"
+                        title="ลบใบสมัคร"
                       >
-                         <Trash2 size={16} />
+                        <Trash2 size={16} />
                       </button>
                     </td>
                   </tr>
-                 ))
+                ))
               ) : (
                 <tr>
-                   <td colSpan="9" className="p-8 align-middle text-center text-muted-foreground">
+                  <td colSpan="9" className="p-8 align-middle text-center text-muted-foreground">
                     <div className="flex flex-col items-center gap-2">
-                       <Users className="h-8 w-8 text-muted-foreground/50" />
+                      <Users className="h-8 w-8 text-muted-foreground/50" />
                       <p>ไม่พบผู้สมัครที่ตรงกับเงื่อนไขการค้นหา</p>
                     </div>
                   </td>
-                 </tr>
+                </tr>
               )}
-             </tbody>
+            </tbody>
           </table>
-         </div>
+        </div>
       </div>
-     </div>
+    </div>
   )
 }
 

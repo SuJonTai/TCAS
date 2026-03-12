@@ -14,6 +14,16 @@ const CriteriaSubjectSchema = new mongoose.Schema({
   weight: { type: Number, default: 0 },
 });
 
+CriteriaSubjectSchema.virtual('SUBJECTS', {
+  ref: 'Subject',
+  localField: 'subject_id',
+  foreignField: 'id',
+  justOne: true
+});
+
+CriteriaSubjectSchema.set('toObject', { virtuals: true });
+CriteriaSubjectSchema.set('toJSON', { virtuals: true });
+
 export const CriteriaSubject = mongoose.models.CriteriaSubject || mongoose.model('CriteriaSubject', CriteriaSubjectSchema);
 
 const AdmissionCriteriaSchema = new mongoose.Schema({

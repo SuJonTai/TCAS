@@ -51,8 +51,7 @@ export default function ApplicantDetailPage() {
   const [saving, setSaving] = useState(false)
   
   const [currentStatus, setCurrentStatus] = useState("pending")
-   const [showResultDialog, setShowResultDialog] = useState(false)
-  const [scores, setScores] = useState([])
+  const [showResultDialog, setShowResultDialog] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
 
   useEffect(() => {
@@ -65,14 +64,6 @@ export default function ApplicantDetailPage() {
         if (data) {
           setApplicant(data)
           setCurrentStatus(data.status || "pending")
-          
-          if (data.user_id) {
-             const { data: scoreData } = await supabase
-              .from('USER_SCORES')
-              .select(`subject_id, score_value, SUBJECTS ( subject_name )`)
-              .eq('user_id', data.user_id)
-            if (scoreData) setScores(scoreData)
-          }
         }
       } catch (error) {
         console.error("Fetch Error:", error.message)
@@ -114,10 +105,11 @@ export default function ApplicantDetailPage() {
     if (!applicant) return { details: [], totalScore: 0 }
     
     const criteriaSubjects = applicant.ADMISSION_CRITERIA?.CRITERIA_SUBJECTS || []
+    const userScores = applicant.APPLICANT_SCORES || []
     let totalScore = 0
     
     const details = criteriaSubjects.map(reqSub => {
-      const userScoreObj = scores.find(s => s.subject_id === reqSub.subject_id)
+      const userScoreObj = userScores.find(s => s.subject_id === reqSub.subject_id)
       const rawScore = userScoreObj ? Number(userScoreObj.score_value) : 0
       
       const weight = Number(reqSub.weight || 0)
@@ -135,20 +127,25 @@ export default function ApplicantDetailPage() {
     })
 
     return { details, totalScore }
-  }, [applicant, scores])
+  }, [applicant])
 
   if (loading) return <div className="p-12 text-center text-muted-foreground italic font-poppins">กำลังโหลดข้อมูลผู้สมัคร...</div>
   if (!applicant) return <div className="p-12 text-center text-destructive font-poppins">ไม่พบข้อมูลผู้สมัครนี้</div>
 
   const user = applicant.USERS || {}
-  const appInfo = applicant.APPLICANT_INFO || {}
   const criteria = applicant.ADMISSION_CRITERIA || {}
   
-  const studyPlanName = appInfo.study_plan || "-"
-  const studyPlanType = "-" // Will need to define or extract this similarly if needed
+  const studyPlanName = user.study_plan || "-"
+  const planSearchStr = (user.high_school || "") + (user.edu_status || "") + (user.study_plan || "");
+  let eduType = "high-school";
+  if (planSearchStr.includes("ปวช") || planSearchStr.includes("เตรียมวิศว")) {
+    eduType = "vocational";
+  } else if (planSearchStr.includes("ปวส")) {
+    eduType = "high-vocational";
+  }
   
   const program = criteria.PROGRAM || {}
-  const faculty = criteria.FACULTY || {}
+  const faculty = program.DEPT?.FACULTY || {}
   const project = criteria.PROJECTS || {}
 
   return (
@@ -197,7 +194,7 @@ export default function ApplicantDetailPage() {
             </div>
             <div className="flex justify-between border-b border-border/50 pb-2">
               <dt className="text-muted-foreground">ประเภทการศึกษา</dt>
-              <dd className="font-semibold text-foreground">{formatEducationType(studyPlanType)}</dd>
+              <dd className="font-semibold text-foreground">{formatEducationType(eduType)}</dd>
             </div>
             <div className="flex justify-between border-b border-border/50 pb-2">
               <dt className="text-muted-foreground">แผนการเรียน</dt>
@@ -205,7 +202,7 @@ export default function ApplicantDetailPage() {
             </div>
              <div className="flex justify-between">
               <dt className="text-muted-foreground">GPAX (5 เทอม)</dt>
-              <dd className="font-bold text-primary text-lg">{applicant.gpax ? applicant.gpax.toFixed(2) : "-"}</dd>
+              <dd className="font-bold text-primary text-lg">{applicant.gpax ? applicant.gpax.toFixed(2) : user.gpax_5_term ? user.gpax_5_term.toFixed(2) : "-"}</dd>
             </div>
           </dl>
         </div>
@@ -373,7 +370,7 @@ export default function ApplicantDetailPage() {
               }} 
               className="w-full py-4 bg-foreground text-background rounded-2xl font-bold hover:opacity-90 transition-all"
              >
-               ตกลง และกลับหน้ารวม
+                ตกลง และกลับหน้ารวม
             </button>
           </div>
         </div>

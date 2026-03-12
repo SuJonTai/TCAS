@@ -72,6 +72,34 @@ export async function POST() {
       }
     }
 
+    // --- Convert String IDs to ObjectIds in admissionresults ---
+    const resultsCol = db.collection('admissionresults');
+    const apps = await resultsCol.find({}).toArray();
+    let convertedCount = 0;
+
+    console.log(`Checking ${apps.length} applications for ID conversion...`);
+
+    for (const app of apps) {
+      const updates = {};
+      
+      // If user_id exists and is a string, convert to ObjectId
+      if (app.user_id && typeof app.user_id === 'string' && mongoose.Types.ObjectId.isValid(app.user_id)) {
+        updates.user_id = new mongoose.Types.ObjectId(app.user_id);
+      }
+      
+      // If criteria_id exists and is a string, convert to ObjectId
+      if (app.criteria_id && typeof app.criteria_id === 'string' && mongoose.Types.ObjectId.isValid(app.criteria_id)) {
+        updates.criteria_id = new mongoose.Types.ObjectId(app.criteria_id);
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await resultsCol.updateOne({ _id: app._id }, { $set: updates });
+        convertedCount++;
+      }
+    }
+    results.convertedIds = convertedCount;
+    results.totalAppsChecked = apps.length;
+
     return NextResponse.json({ 
       message: 'Migration complete',
       updated: results

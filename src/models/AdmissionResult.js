@@ -16,7 +16,27 @@ const AdmissionResultSchema = new mongoose.Schema({
   remark: { type: String, default: "" },
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-// Prevent duplicate applications
-AdmissionResultSchema.index({ user_id: 1, criteria_id: 1 }, { unique: true });
+AdmissionResultSchema.virtual('USERS', {
+  ref: 'User',
+  localField: 'user_id',
+  foreignField: '_id',
+  justOne: true
+});
+
+AdmissionResultSchema.virtual('ADMISSION_CRITERIA', {
+  ref: 'AdmissionCriteria',
+  localField: 'criteria_id',
+  foreignField: '_id',
+  justOne: true
+});
+
+AdmissionResultSchema.virtual('APPLICANT_SCORES', {
+  ref: 'ApplicantScore',
+  localField: 'user_id',
+  foreignField: 'user_id'
+});
+
+AdmissionResultSchema.set('toObject', { virtuals: true });
+AdmissionResultSchema.set('toJSON', { virtuals: true });
 
 export default mongoose.models.AdmissionResult || mongoose.model('AdmissionResult', AdmissionResultSchema);

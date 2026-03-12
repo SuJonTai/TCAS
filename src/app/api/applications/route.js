@@ -1,47 +1,116 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/mongodb';
+import mongoose from 'mongoose';
 import AdmissionResult from '@/models/AdmissionResult';
 import User from '@/models/User';
-import AdmissionCriteria from '@/models/AdmissionCriteria';
+import AdmissionCriteria, { CriteriaSubject } from '@/models/AdmissionCriteria';
 import AdmissionProject from '@/models/AdmissionProject';
 import Program from '@/models/Program';
 import Department from '@/models/Department';
 import Faculty from '@/models/Faculty';
+import Subject from '@/models/Subject';
+import ApplicantScore from '@/models/ApplicantScore';
 
 export async function GET(req) {
   try {
     await connectToDatabase();
+    const db = mongoose.connection.db;
 
-    const results = await AdmissionResult.find()
-      .populate({ path: 'user_id', model: User, select: '-password' })
-      .populate({ path: 'criteria_id', model: AdmissionCriteria })
+    // Use raw MongoDB to avoid Mongoose type-casting issues
+    const rawApps = await db.collection('admissionresults')
+      .find({})
       .sort({ application_date: -1 })
-      .lean();
+      .toArray();
 
-    // Enrich each result with program/faculty/project info from criteria
-    const [projects, programs, departments, faculties] = await Promise.all([
+    // Fetch all lookup tables in parallel
+    const [allUsers, allCriteria, allProjects, allPrograms, allDepts, allFaculties, allScores, allCriteriaSubjects, allSubjects] = await Promise.all([
+      User.find({}, '-password').lean(),
+      AdmissionCriteria.find().lean(),
       AdmissionProject.find().lean(),
       Program.find().lean(),
       Department.find().lean(),
       Faculty.find().lean(),
+      ApplicantScore.find().lean(),
+      CriteriaSubject.find().lean(),
+      Subject.find().lean(),
     ]);
 
-    const enriched = results.map(r => {
-      const criteria = r.criteria_id || {};
-      const project = projects.find(p => p.id === criteria.project_id);
-      const program = programs.find(p => p.id === criteria.program_id);
-      const dept = program ? departments.find(d => d.id === program.dept_id) : null;
-      const faculty = dept ? faculties.find(f => f.id === dept.faculty_id) : null;
+    // Build lookup maps
+    const usersById = {};
+    allUsers.forEach(u => { usersById[u._id.toString()] = u; });
+
+    const criteriaById = {};
+    allCriteria.forEach(c => { criteriaById[c._id.toString()] = c; });
+
+    const projectsById = {};
+    allProjects.forEach(p => { projectsById[p.id] = p; });
+
+    const programsById = {};
+    allPrograms.forEach(p => { programsById[p.id] = p; });
+
+    const deptsById = {};
+    allDepts.forEach(d => { deptsById[d.id] = d; });
+
+    const facultiesById = {};
+    allFaculties.forEach(f => { facultiesById[f.id] = f; });
+
+    const subjectsById = {};
+    allSubjects.forEach(s => { subjectsById[s.id] = s; });
+
+    // Group scores and criteria-subjects by their foreign keys
+    const scoresByUserId = {};
+    allScores.forEach(s => {
+      const uid = s.user_id.toString();
+      if (!scoresByUserId[uid]) scoresByUserId[uid] = [];
+      scoresByUserId[uid].push(s);
+    });
+
+    const criteriaSubjectsByCritId = {};
+    allCriteriaSubjects.forEach(cs => {
+      const cid = cs.criteria_id.toString();
+      if (!criteriaSubjectsByCritId[cid]) criteriaSubjectsByCritId[cid] = [];
+      // Enrich with subject info
+      const subjectInfo = subjectsById[cs.subject_id] || {};
+      criteriaSubjectsByCritId[cid].push({ ...cs, SUBJECTS: subjectInfo });
+    });
+
+    // Enrich each application
+    const enriched = rawApps.map(app => {
+      const userId = app.user_id?.toString();
+      const criteriaId = app.criteria_id?.toString();
+      
+      const user = usersById[userId] || {};
+      const criteria = criteriaById[criteriaId] || {};
+      const scores = scoresByUserId[userId] || [];
+
+      // Enrich criteria with project/program/faculty info
+      const project = projectsById[criteria.project_id] || {};
+      const program = programsById[criteria.program_id] || {};
+      const dept = deptsById[program.dept_id] || {};
+      const faculty = facultiesById[dept.faculty_id] || {};
+
+      const criteriaSubjects = criteriaSubjectsByCritId[criteriaId] || [];
 
       return {
-        ...r,
-        id: r._id,
-        user_id: r.user_id?._id || r.user_id,
-        USERS: r.user_id, // populated user data
+        _id: app._id,
+        user_id: app.user_id,
+        criteria_id: app.criteria_id,
+        status: app.status,
+        gpax: app.gpax,
+        portfolio_url: app.portfolio_url,
+        transcript_url: app.transcript_url,
+        application_date: app.application_date,
+        calculated_score: app.calculated_score,
+        remark: app.remark,
+        created_at: app.created_at,
+        updated_at: app.updated_at,
+        USERS: user,
+        APPLICANT_SCORES: scores,
         ADMISSION_CRITERIA: {
           ...criteria,
-          ADMISSION_PROJECTS: project || {},
-          PROGRAMS: program ? { ...program, DEPARTMENTS: dept ? { ...dept, FACULTIES: faculty || {} } : {} } : {},
+          CRITERIA_SUBJECTS: criteriaSubjects,
+          PROJECTS: project,
+          PROGRAM: { ...program, DEPT: { ...dept, FACULTY: faculty } },
         },
       };
     });
@@ -49,7 +118,7 @@ export async function GET(req) {
     return NextResponse.json(enriched);
   } catch (error) {
     console.error("GET Applications error:", error);
-    return NextResponse.json({ error: "Failed to fetch applications" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch applications", details: error.message }, { status: 500 });
   }
 }
 
