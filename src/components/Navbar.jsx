@@ -14,6 +14,7 @@ const navLinks = [
   { href: "/apply", label: "สมัครเรียน" },
   { href: "/staff", label: "สำหรับเจ้าหน้าที่" },
   { href: "/login", label: "เข้าสู่ระบบ" },
+  { href: "/superadmin", label: "Admin Dashboard" },
   { href: "/superadmin/acc", label: "จัดการบัญชี" },
   { href: "/superadmin/criteria", label: "จัดการเกณฑ์" },
   { href: "/superadmin/academic", label: "จัดการข้อมูลการศึกษา" }
@@ -42,7 +43,7 @@ export default function Navbar() {
 
   // --- Link Protection / Redirection Logic ---
   const targetHref = href => {
-    const needsLogin = ["/apply", "/staff", "/student-details", "/superadmin/academic", "/superadmin/acc", "/superadmin/criteria"].includes(href);
+    const needsLogin = ["/apply", "/staff", "/student-details", "/superadmin", "/superadmin/academic", "/superadmin/acc", "/superadmin/criteria"].includes(href);
     
     // Redirect guests to login
     if (!isLogin && needsLogin) return "/login"
